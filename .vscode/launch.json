@@ -1,0 +1,44 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": ".NET Core Launch (console)",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build",
+            "program": "${workspaceFolder}/src/NCUtil.Cli/bin/Debug/net8.0/NCUtil.Cli.dll",
+            "args": [
+                "-pv4",
+                "--out-file",
+                "${workspaceRoot}/data/out/out.nc",
+                "--chunk-sizes",
+                "lat/1,lon/1,time/8760",
+                "--min-chunk-size",
+                "4",
+                "--compression-level",
+                "0",
+                "--work-dir",
+                "${workspaceRoot}/data/work",
+
+                // "--walltime-limit",
+                // "48:00:00",
+                // "--restart-file",
+                // "...",
+
+                "${workspaceRoot}/data/in/vpd_AUS-11_ERA5_historical_hres_BOM_BARRA-R2_v1_1hr_197901-197901.nc",
+                "${workspaceRoot}/data/in/vpd_AUS-11_ERA5_historical_hres_BOM_BARRA-R2_v1_1hr_197902-197902.nc",
+            ],
+            "cwd": "${workspaceFolder}/src/NCUtil.Cli",
+            "console": "internalConsole",
+            "stopAtEntry": false
+        },
+        {
+            "name": ".NET Core Attach",
+            "type": "coreclr",
+            "request": "attach"
+        }
+    ]
+}
