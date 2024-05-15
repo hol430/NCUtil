@@ -1,4 +1,5 @@
 using NCUtil.Core.Models;
+using NCUtil.Core.Logging;
 using NetCDFInterop;
 
 namespace NCUtil.Core.Extensions;
@@ -23,5 +24,14 @@ public static class NetCDFExtensions
     public static bool IsTime(this Dimension dimension)
     {
         return dimension.Name == NetCDFFile.DimTime;
+    }
+
+    public static void CopyMetadataTo(this NetCDFFile from, NetCDFFile to)
+    {
+        foreach (var attribute in from.GetAttributes())
+        {
+            Log.Diagnostic("Setting attribute {0} in output file", attribute.Name);
+            to.SetGlobalAttribute(attribute);
+        }
     }
 }

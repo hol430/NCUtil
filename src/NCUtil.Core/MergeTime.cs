@@ -1,6 +1,5 @@
 using NCUtil.Core.Configuration;
 using NCUtil.Core.Logging;
-using NCUtil.Core.Util;
 using NCUtil.Core.Extensions;
 using NCUtil.Core.Models;
 
@@ -83,6 +82,10 @@ public class MergeTime
 
     private void InitialiseOutputFile(string outFile)
     {
+        // Parse chunk sizes from user options. Doing this early so we can throw
+        // early in case of parser error.
+        ChunkSizes chunkSizes = new ChunkSizes(options.ChunkSizes);
+
         using NetCDFFile ncOut = new NetCDFFile(outFile, NetCDFFileMode.Write);
         Log.Information("Initialising output file");
 
@@ -98,17 +101,16 @@ public class MergeTime
             ncOut.AddDimension(dim.Name, size);
         }
 
-        // TODO: create variables.
+        // Create all variables in output file (but don't fill them with data).
         Log.Diagnostic("Creating variables in output file");
         foreach (Variable variable in ncIn.GetVariables())
         {
-            // TODO: compression level/type, chunking, dimension order, 
-            ncOut.AddVariable(variable.Name, variable.DataType, variable.Dimensions, variable.Zlib);
-
-            // TODO: copy metadata for variable.
+            // Create variable.
+            ncOut.AddVariable(variable, chunkSizes, options.AllowCompact);
         }
 
-        // TODO: copy metadata.
+        // Copy file-level metadata.
+        ncIn.CopyMetadataTo(ncOut);
     }
 
     private IEnumerable<string> ReadRestartFile()

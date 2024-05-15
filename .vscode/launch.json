@@ -11,11 +11,11 @@
             "preLaunchTask": "build",
             "program": "${workspaceFolder}/src/NCUtil.Cli/bin/Debug/net8.0/NCUtil.Cli.dll",
             "args": [
-                "-pv4",
+                "-pv3",
                 "--out-file",
                 "${workspaceRoot}/data/out/out.nc",
                 "--chunk-sizes",
-                "lat/1,lon/1,time/8760",
+                "lat/1,lon/1,time/512",
                 "--min-chunk-size",
                 "4",
                 "--compression-level",

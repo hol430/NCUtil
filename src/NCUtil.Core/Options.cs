@@ -17,6 +17,7 @@ public class Options
     private readonly string? restartFile;
     private readonly IEnumerable<string> chunkSizes;
     private readonly int compressionLevel;
+    private readonly bool allowCompact;
     private readonly string outputFile;
     private readonly IEnumerable<string> inputFiles;
 
@@ -48,6 +49,9 @@ public class Options
     [Option('C', "compression-level", Default = -1, HelpText = "Compression level 0-9. 0 means no compression. 9 means highest compression ratio but slowest performance. Default behaviour is to use the same compression level as in the input files.")]
     public int CompressionLevel => compressionLevel;
 
+    [Option("allow-compact", Default = false, HelpText = "Allow compact packing of variables small enough to allow it and which don't have explicit chunk sizes specified for all of their dimensions")]
+    public bool AllowCompact => allowCompact;
+
     [Option('o', "out-file", Required = true, HelpText = "Path to the output file.")]
     public string OutputFile => outputFile;
 
@@ -56,7 +60,7 @@ public class Options
 
     public Options(int verbosity, bool showProgress, int minChunkSize, string? units, string? workingDirectory, TimeSpan? walltimelimit
         , string? restartFile, IEnumerable<string> chunkSizes
-        , int compressionLevel, string outputFile
+        , int compressionLevel, bool allowCompact, string outputFile
         , IEnumerable<string> inputFiles)
     {
         this.verbosity = verbosity;
@@ -68,6 +72,7 @@ public class Options
         this.restartFile = restartFile;
         this.chunkSizes = chunkSizes;
         this.compressionLevel = compressionLevel;
+        this.allowCompact = allowCompact;
         this.outputFile = outputFile;
         this.inputFiles = inputFiles;
     }

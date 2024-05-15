@@ -46,5 +46,11 @@ public static class NetCDFNative
     public static extern int nc_inq_varndims(int ncid, int varid, out int ndims);
 
     [DllImport("netcdf", CallingConvention = CallingConvention.Cdecl)]
+    public static extern int nc_inq_varid(int ncid, string name, out int varidp);
+
+    [DllImport("netcdf", CallingConvention = CallingConvention.Cdecl)]
+    public static extern int nc_inq_natts(int ncid, out int ngatts);
+
+    [DllImport("netcdf", CallingConvention = CallingConvention.Cdecl)]
     public static extern IntPtr nc_strerror(int ncerr1);
 }

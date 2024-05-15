@@ -28,6 +28,25 @@ public static class DataSetExtensions
         { typeof(string), NcType.NC_STRING },
     };
 
+    private static readonly IDictionary<NcType, int> dataSizes = new Dictionary<NcType, int>()
+    {
+        { NcType.NC_SHORT, sizeof(short) },
+        { NcType.NC_INT, sizeof(int) },
+        { NcType.NC_INT64, sizeof(long) },
+
+        { NcType.NC_USHORT, sizeof(ushort) },
+        { NcType.NC_UINT, sizeof(uint) },
+        { NcType.NC_UINT64, sizeof(ulong) },
+
+        { NcType.NC_FLOAT, sizeof(float) },
+        { NcType.NC_DOUBLE, sizeof(double) },
+
+        { NcType.NC_BYTE, sizeof(sbyte) },
+        { NcType.NC_UBYTE, sizeof(byte) },
+        { NcType.NC_CHAR, sizeof(char) },
+        // { NcType.NC_STRING, sizeof(char) },
+    };
+
     /// <summary>
     /// Name of the time dimension.
     /// </summary>
@@ -130,5 +149,12 @@ public static class DataSetExtensions
             throw new Exception($"Failed to create variable {name}: {error}");
         }
         Log.Diagnostic("Successfully created variable {0}", name, string.Join(", ", dimensions));
+    }
+
+    public static int DataSize(this NcType type)
+    {
+        if (dataSizes.ContainsKey(type))
+            return dataSizes[type];
+        throw new Exception($"Unknown data size for type {type}");
     }
 }

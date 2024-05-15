@@ -128,6 +128,17 @@ internal static class NetCDFManaged
         return dimid;
     }
 
+    public static int GetVariableID(int ncid, string name)
+    {
+        Log.Debug("Calling nc_inq_varid() for variable {0}", name);
+
+        int res = NetCDFNative.nc_inq_varid(ncid, name, out int varid);
+        CheckResult(res, "Failed to get ID of variable {0}", name);
+
+        Log.Debug("Call to nc_inq_varid() was successful; variable {0} has ID {1}", name, varid);
+        return varid;
+    }
+
     public static void CreateDimension(int ncid, string name, int length)
     {
         if (length < 0)
@@ -319,6 +330,120 @@ internal static class NetCDFManaged
         object value = GetAttributeValue(ncid, varid, name, nctype, length);
 
         return new Attribute(name, value, type);
+    }
+
+    private static void SetAttributeValue<T>(int ncid, int varid, string name, object value, Func<int, int, string, T[], int> nativeFunc)
+    {
+        Log.Debug("Calling nc_put_att_{0}()", typeof(T).Name);
+
+        T[] array;
+        if (typeof(T).IsAssignableFrom(value.GetType()))
+            array = new T[1] { (T)value };
+        else if (value.GetType().IsArray)
+            array = (T[])value;
+        else if (value is IEnumerable<T>)
+            array = ((IEnumerable<T>)value).ToArray();
+        else
+            throw new InvalidOperationException($"Attempted to set attribute {name} as {typeof(T).Name} attribute, but value is of type {value.GetType().Name}");
+
+        int res = nativeFunc(ncid, varid, name, array);
+        CheckResult(res, "Failed to set attribute {0}", name);
+
+        Log.Debug("Successfully set attribute {0}", name);
+    }
+
+    private static void SetChunking(int ncid, int varid, ChunkMode mode, int[]? chunkSizes)
+    {
+        nint[]? ptrs = chunkSizes?.Select(c => (nint)c).ToArray();
+        Log.Debug("Calling nc_def_var_chunking() for variable {0}", varid);
+
+        int res = NetCDF.nc_def_var_chunking(ncid, varid, (int)mode, ptrs);
+        CheckResult(res, "Failed to set chunk sizes for variable {0}", varid);
+
+        Log.Debug("Successfully set chunk sizes for variable {0}", varid);
+    }
+
+    public static void SetVariableChunking(int ncid, int varid, int[] chunkSizes)
+    {
+        SetChunking(ncid, varid, ChunkMode.Chunked, chunkSizes);
+    }
+
+    public static void MakeContiguous(int ncid, int varid)
+    {
+        SetChunking(ncid, varid, ChunkMode.Contiguous, null);
+    }
+
+    public static void MakeCompact(int ncid, int varid)
+    {
+        SetChunking(ncid, varid, ChunkMode.Compact, null);
+    }
+
+    private static int SetCharAttributeValue(int ncid, int varid, string name, char[] value)
+    {
+        return NetCDF.nc_put_att_text(ncid, varid, name, new string(value));
+    }
+
+    public static void SetAttribute(int ncid, int varid, Attribute attribute)
+    {
+        switch (attribute.DataType.ToNcType())
+        {
+            case NcType.NC_SHORT:
+                SetAttributeValue<short>(ncid, varid, attribute.Name, attribute.Value, NetCDF.nc_put_att_short);
+                break;
+            case NcType.NC_INT:
+                SetAttributeValue<int>(ncid, varid, attribute.Name, attribute.Value, NetCDF.nc_put_att_int);
+                break;
+            case NcType.NC_INT64:
+                SetAttributeValue<long>(ncid, varid, attribute.Name, attribute.Value, NetCDF.nc_put_att_longlong);
+                break;
+
+            case NcType.NC_USHORT:
+                SetAttributeValue<ushort>(ncid, varid, attribute.Name, attribute.Value, NetCDF.nc_put_att_ushort);
+                break;
+            case NcType.NC_UINT:
+                SetAttributeValue<uint>(ncid, varid, attribute.Name, attribute.Value, NetCDF.nc_put_att_uint);
+                break;
+            case NcType.NC_UINT64:
+                SetAttributeValue<ulong>(ncid, varid, attribute.Name, attribute.Value, NetCDF.nc_put_att_ulonglong);
+                break;
+
+            case NcType.NC_FLOAT:
+                SetAttributeValue<float>(ncid, varid, attribute.Name, attribute.Value, NetCDF.nc_put_att_float);
+                break;
+            case NcType.NC_DOUBLE:
+                SetAttributeValue<double>(ncid, varid, attribute.Name, attribute.Value, NetCDF.nc_put_att_double);
+                break;
+
+            case NcType.NC_BYTE:
+                SetAttributeValue<sbyte>(ncid, varid, attribute.Name, attribute.Value, NetCDF.nc_put_att_schar);
+                break;
+            case NcType.NC_UBYTE:
+                SetAttributeValue<byte>(ncid, varid, attribute.Name, attribute.Value, NetCDF.nc_put_att_ubyte);
+                break;
+            case NcType.NC_CHAR:
+                SetAttributeValue<char>(ncid, varid, attribute.Name, attribute.Value, SetCharAttributeValue);
+                break;
+            case NcType.NC_STRING:
+                SetAttributeValue<string>(ncid, varid, attribute.Name, attribute.Value, NetCDF.nc_put_att_string);
+                break;
+            default:
+                throw new InvalidOperationException($"Unknown attribute type: {attribute.DataType.Name}");
+        }
+    }
+
+    /// <summary>
+    /// Get the number of file-level attributes.
+    /// </summary>
+    /// <param name="ncid">NetCDF file ID.</param>
+    public static int GetNumAttributes(int ncid)
+    {
+        Log.Debug("Calling nc_inq_natts() for file {0}...", ncid);
+
+        int res = NetCDFNative.nc_inq_natts(ncid, out int natts);
+        CheckResult(res, "Failed to get number of file-level attributes");
+
+        Log.Debug("Call to nc_inq_natts() was successful; file {0} has {1} global attributes", ncid, natts);
+        return natts;
     }
 
     public static int CreateVariable(int ncid, string name, Type type, IEnumerable<string> dimensions)
