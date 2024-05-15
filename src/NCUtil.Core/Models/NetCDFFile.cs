@@ -114,9 +114,9 @@ public class NetCDFFile : IDisposable
 
         int varid = CreateVariable(id, variable.Name, variable.DataType, variable.Dimensions);
 
-        int variableLength = variable.Dimensions.Select(d => GetDimensionLength(id, GetDimensionID(id, d))).Product();
+        long variableLength = GetVariableLength(varid);
         int dataSize = variable.DataType.ToNcType().DataSize();
-        int variableSize = variableLength * dataSize;
+        long variableSize = variableLength * dataSize;
 
         // Set chunk sizes and strategy.
         // Variables are contiguous by default.
@@ -184,6 +184,31 @@ public class NetCDFFile : IDisposable
     public void SetGlobalAttribute(Attribute attribute)
     {
         SetAttribute(id, NcConst.NC_GLOBAL, attribute);
+    }
+
+    public long GetVariableLength(string variable)
+    {
+        int varid = GetVariableID(id, variable);
+        return GetVariableLength(varid);
+    }
+
+    /// <summary>
+    /// Read from the specified variable.
+    /// </summary>
+    /// <param name="name">Name of the variable to be read.</param>
+    /// <param name="hyperslab">The ranges to be read from the variable along
+    /// each dimension. This array must have 1 element for each dimension of the
+    /// variable, and must be in the same order as the dimensions.</param>
+    public Array Read(string name, Range[] hyperslab)
+    {
+        int varid = GetVariableID(id, name);
+        return ReadVariable(id, varid, hyperslab);
+    }
+
+    private long GetVariableLength(int varid)
+    {
+        int[] dimids = GetVariableDimensionIDs(id, varid);
+        return dimids.Select(d => GetDimensionLength(id, d)).Product();
     }
 
     /// <summary>

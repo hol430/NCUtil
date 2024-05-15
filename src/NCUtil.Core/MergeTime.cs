@@ -1,4 +1,5 @@
 using NCUtil.Core.Configuration;
+using NCUtil.Core.IO;
 using NCUtil.Core.Logging;
 using NCUtil.Core.Extensions;
 using NCUtil.Core.Models;
@@ -62,6 +63,14 @@ public class MergeTime
             InitialiseOutputFile(outFile);
 
         // TODO: copy data.
+        double start = 0.0;
+        long totalSize = options.InputFiles.Select(i => new FileInfo(i).Length).Sum();
+        foreach (string inputFile in options.InputFiles)
+        {
+            double step = new FileInfo(inputFile).Length / totalSize;
+            CopyData(inputFile, outFile, p => Log.Progress(start + step * p));
+            start += step;
+        }
 
         // Move intermediate output file into output directory.
         if (options.WorkingDirectory != null)
@@ -111,6 +120,27 @@ public class MergeTime
 
         // Copy file-level metadata.
         ncIn.CopyMetadataTo(ncOut);
+    }
+
+    public void CopyData(string inputFile, string outputFile, Action<double> progressReporter)
+    {
+        using NetCDFFile ncIn = new NetCDFFile(inputFile);
+        using NetCDFFile ncOut = new NetCDFFile(outputFile, NetCDFFileMode.Append);
+
+        IReadOnlyList<string> dimensions = ncIn.GetDimensions().Select(d => d.Name).ToList();
+        IReadOnlyList<Variable> variables = ncIn.GetVariables();
+        long totalWeight = variables.Where(v => !v.Dimensions.Contains(v.Name)).Sum(v => ncIn.GetVariableLength(v.Name));
+
+        double start = 0;
+        foreach (Variable variable in variables)
+        {
+            if (dimensions.Contains(variable.Name))
+                continue;
+
+            double step = ncIn.GetVariableLength(variable.Name) / totalWeight;
+            AppendTime.AppendTimeVariable(ncIn, ncOut, variable.Name, p => progressReporter(start + step * p));
+            start += step;
+        }
     }
 
     private IEnumerable<string> ReadRestartFile()

@@ -6,7 +6,8 @@ public class LogFile : ILogger
     private readonly bool showProgress;
     private readonly TextWriter output;
     private readonly TextWriter error;
-    public readonly DateTime startTime = DateTime.Now;
+    private readonly DateTime startTime = DateTime.Now;
+    private DateTime progressStartTime = DateTime.Now;
     private readonly char progressEol;
 
     public LogFile(LogLevel verbosity, bool showProgress)
@@ -50,9 +51,14 @@ public class LogFile : ILogger
         }
 
         double percent = 100.0 * progress;
-        TimeSpan elapsed = DateTime.Now - startTime;
+        TimeSpan elapsed = DateTime.Now - progressStartTime;
         TimeSpan expected = elapsed / progress;
         TimeSpan remaining = expected - elapsed;
         output.Write($"Working: {percent:f2}%; Elapsed: {elapsed}; Remaining: {remaining}{progressEol}");
+    }
+
+    public void InitWallTime()
+    {
+        progressStartTime = DateTime.Now;
     }
 }

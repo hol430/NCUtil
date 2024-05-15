@@ -34,6 +34,20 @@ public static class Log
         WriteLog(LogLevel.Debug, format, args);
     }
 
+    public static void InitWallTime()
+    {
+        if (logService == null)
+            throw new InvalidOperationException($"No logging service has been configured");
+        logService.InitWallTime();
+    }
+
+    public static void Progress(double progress)
+    {
+        if (logService == null)
+            throw new InvalidOperationException($"No logging service has been configured");
+        logService.LogProgress(progress);
+    }
+
     private static void WriteLog(LogLevel level, string format, params object[] args)
     {
         if (logService == null)
