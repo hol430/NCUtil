@@ -1,6 +1,6 @@
 namespace NCUtil.Core.Models;
 
-public class Range
+public class Range : IRange
 {
 	public int Start { get; private init; }
 	public int Count { get; private init; }
@@ -9,4 +9,9 @@ public class Range
 		Start = start;
 		Count = count;
 	}
+
+    public override string ToString()
+    {
+        return $"{Start}:{Start + Count}";
+    }
 }

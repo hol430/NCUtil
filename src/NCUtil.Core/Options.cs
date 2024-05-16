@@ -10,6 +10,7 @@ public class Options
 
     private readonly int verbosity;
     private readonly bool showProgress;
+    private readonly int progressInterval;
     private readonly int minChunkSize;
     private readonly string? units;
     private readonly string? workingDirectory;
@@ -26,6 +27,9 @@ public class Options
 
     [Option('p', "show-progress", Default = false, HelpText = "Enable progress reporting")]
     public bool ShowProgress => showProgress;
+
+    [Option("progress-interval", Default = 1, HelpText = "Minimum interval between progress reports in seconds. This has no effect if progress reporting is disabled (default: 1)")]
+    public int ProgressInterval => progressInterval;
 
     [Option("min-chunk-size", Default = 1, HelpText = "Number of chunks to read at a time (along each dimension) when copying data. If 1, the chunk size of the input data will be used. This does not affect the chunking of the variables in the output file. Higher values result in higher throughput at the cost of higher memory usage")]
     public int MinChunkSize => minChunkSize;
@@ -58,17 +62,19 @@ public class Options
     [Value(0)]
     public IEnumerable<string> InputFiles => inputFiles;
 
-    public Options(int verbosity, bool showProgress, int minChunkSize, string? units, string? workingDirectory, TimeSpan? walltimelimit
-        , string? restartFile, IEnumerable<string> chunkSizes
-        , int compressionLevel, bool allowCompact, string outputFile
-        , IEnumerable<string> inputFiles)
+    public Options(int verbosity, bool showProgress, int progressInterval
+        , int minChunkSize, string? units, string? workingDirectory
+        , TimeSpan? walltimeLimit, string? restartFile
+        , IEnumerable<string> chunkSizes, int compressionLevel
+        , bool allowCompact, string outputFile, IEnumerable<string> inputFiles)
     {
         this.verbosity = verbosity;
         this.showProgress = showProgress;
+        this.progressInterval = progressInterval;
         this.minChunkSize = minChunkSize;
         this.units = units;
         this.workingDirectory = workingDirectory;
-        this.walltimeLimit = walltimelimit;
+        this.walltimeLimit = walltimeLimit;
         this.restartFile = restartFile;
         this.chunkSizes = chunkSizes;
         this.compressionLevel = compressionLevel;

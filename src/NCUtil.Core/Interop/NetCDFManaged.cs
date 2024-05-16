@@ -230,7 +230,7 @@ internal static class NetCDFManaged
         return type;
     }
 
-    private static short[] ReadVaraShort(int ncid, int varid, Range[] hyperslab)
+    private static short[] ReadVaraShort(int ncid, int varid, IRange[] hyperslab)
     {
         nint[] start = hyperslab.Select(h => (nint)h.Start).ToArray();
         nint[] count = hyperslab.Select(h => (nint)h.Count).ToArray();
@@ -246,7 +246,7 @@ internal static class NetCDFManaged
         return data;
     }
 
-    private static int[] ReadVaraInt(int ncid, int varid, Range[] hyperslab)
+    private static int[] ReadVaraInt(int ncid, int varid, IRange[] hyperslab)
     {
         nint[] start = hyperslab.Select(h => (nint)h.Start).ToArray();
         nint[] count = hyperslab.Select(h => (nint)h.Count).ToArray();
@@ -262,7 +262,7 @@ internal static class NetCDFManaged
         return data;
     }
 
-    private static long[] ReadVaraInt64(int ncid, int varid, Range[] hyperslab)
+    private static long[] ReadVaraInt64(int ncid, int varid, IRange[] hyperslab)
     {
         nint[] start = hyperslab.Select(h => (nint)h.Start).ToArray();
         nint[] count = hyperslab.Select(h => (nint)h.Count).ToArray();
@@ -278,7 +278,7 @@ internal static class NetCDFManaged
         return data;
     }
 
-    private static ushort[] ReadVaraUshort(int ncid, int varid, Range[] hyperslab)
+    private static ushort[] ReadVaraUshort(int ncid, int varid, IRange[] hyperslab)
     {
         nint[] start = hyperslab.Select(h => (nint)h.Start).ToArray();
         nint[] count = hyperslab.Select(h => (nint)h.Count).ToArray();
@@ -294,7 +294,7 @@ internal static class NetCDFManaged
         return data;
     }
 
-    private static uint[] ReadVaraUint(int ncid, int varid, Range[] hyperslab)
+    private static uint[] ReadVaraUint(int ncid, int varid, IRange[] hyperslab)
     {
         nint[] start = hyperslab.Select(h => (nint)h.Start).ToArray();
         nint[] count = hyperslab.Select(h => (nint)h.Count).ToArray();
@@ -310,7 +310,7 @@ internal static class NetCDFManaged
         return data;
     }
 
-    private static ulong[] ReadVaraUint64(int ncid, int varid, Range[] hyperslab)
+    private static ulong[] ReadVaraUint64(int ncid, int varid, IRange[] hyperslab)
     {
         nint[] start = hyperslab.Select(h => (nint)h.Start).ToArray();
         nint[] count = hyperslab.Select(h => (nint)h.Count).ToArray();
@@ -326,7 +326,7 @@ internal static class NetCDFManaged
         return data;
     }
 
-    private static float[] ReadVaraFloat(int ncid, int varid, Range[] hyperslab)
+    private static float[] ReadVaraFloat(int ncid, int varid, IRange[] hyperslab)
     {
         nint[] start = hyperslab.Select(h => (nint)h.Start).ToArray();
         nint[] count = hyperslab.Select(h => (nint)h.Count).ToArray();
@@ -342,7 +342,7 @@ internal static class NetCDFManaged
         return data;
     }
 
-    private static double[] ReadVaraDouble(int ncid, int varid, Range[] hyperslab)
+    private static double[] ReadVaraDouble(int ncid, int varid, IRange[] hyperslab)
     {
         nint[] start = hyperslab.Select(h => (nint)h.Start).ToArray();
         nint[] count = hyperslab.Select(h => (nint)h.Count).ToArray();
@@ -358,7 +358,7 @@ internal static class NetCDFManaged
         return data;
     }
 
-    private static sbyte[] ReadVaraByte(int ncid, int varid, Range[] hyperslab)
+    private static sbyte[] ReadVaraByte(int ncid, int varid, IRange[] hyperslab)
     {
         nint[] start = hyperslab.Select(h => (nint)h.Start).ToArray();
         nint[] count = hyperslab.Select(h => (nint)h.Count).ToArray();
@@ -374,7 +374,7 @@ internal static class NetCDFManaged
         return data;
     }
 
-    private static byte[] ReadVaraUbyte(int ncid, int varid, Range[] hyperslab)
+    private static byte[] ReadVaraUbyte(int ncid, int varid, IRange[] hyperslab)
     {
         nint[] start = hyperslab.Select(h => (nint)h.Start).ToArray();
         nint[] count = hyperslab.Select(h => (nint)h.Count).ToArray();
@@ -390,7 +390,7 @@ internal static class NetCDFManaged
         return data;
     }
 
-    private static byte[] ReadVaraChar(int ncid, int varid, Range[] hyperslab)
+    private static byte[] ReadVaraChar(int ncid, int varid, IRange[] hyperslab)
     {
         nint[] start = hyperslab.Select(h => (nint)h.Start).ToArray();
         nint[] count = hyperslab.Select(h => (nint)h.Count).ToArray();
@@ -406,7 +406,7 @@ internal static class NetCDFManaged
         return data;
     }
 
-    private static string[] ReadVaraString(int ncid, int varid, Range[] hyperslab)
+    private static string[] ReadVaraString(int ncid, int varid, IRange[] hyperslab)
     {
         nint[] start = hyperslab.Select(h => (nint)h.Start).ToArray();
         nint[] count = hyperslab.Select(h => (nint)h.Count).ToArray();
@@ -422,12 +422,21 @@ internal static class NetCDFManaged
         return data;
     }
 
-    public static Array ReadVariable(int ncid, int varid, Range[] hyperslab)
+    /// <summary>
+    /// Call the appropriate nc_get_vara_X() function to read the specified
+    /// hyperslab from the specified variable, and return the result as a
+    /// 1-dimensional array with the last dimension varying most rapidly, and
+    /// the first dimension varying most slowly.
+    /// </summary>
+    /// <param name="ncid">ID of the NetCDF file.</param>
+    /// <param name="varid">ID of the variable to be read.</param>
+    /// <param name="hyperslab">The hyperslab to read.</param>
+    private static Array ReadVariable1D(int ncid, int varid, IRange[] hyperslab)
     {
         GetVariable(ncid, varid, out string name, out NcType type, out int[] dimids, out _);
         int ndim = dimids.Length;
         if (ndim != hyperslab.Length)
-            throw new InvalidOperationException($"Unable to read from variable {name}: only {hyperslab.Length} hyperslabs were specified, but variable has {ndim} dimensions");
+            throw new InvalidOperationException($"Unable to read from variable {name}: only {hyperslab.Length} dimensions were specified, but variable has {ndim} dimensions");
 
         switch (type)
         {
@@ -464,6 +473,260 @@ internal static class NetCDFManaged
     }
 
     /// <summary>
+    /// Read the specified hyperslab from a variable and return the result as a
+    /// multi-dimensional array matching the shape of the variable.
+    /// </summary>
+    /// <param name="ncid">ID of the NetCDF file.</param>
+    /// <param name="varid">ID of the variable to be read.</param>
+    /// <param name="hyperslab">The hyperslab to read.</param>
+    public static Array ReadVariable(int ncid, int varid, IRange[] hyperslab)
+    {
+        Array result1d = ReadVariable1D(ncid, varid, hyperslab);
+        int[] shape = hyperslab.Select(h => h.Count).ToArray();
+        return result1d.ToMultiDimensionalArray(shape);
+    }
+
+    private static void WriteVaraShort(int ncid, int varid, IRange[] hyperslab, Array data)
+    {
+        // NcType.NC_SHORT
+        nint[] start = hyperslab.Select(h => (nint)h.Start).ToArray();
+        nint[] count = hyperslab.Select(h => (nint)h.Count).ToArray();
+
+        long n = hyperslab.Product(r => r.Count);
+        Log.Debug("Writing {0} elements to variable {1}", n, varid);
+
+        int res = NetCDF.nc_put_vara_short(ncid, varid, start, count, (short[])data);
+        CheckResult(res, "Failed to write to variable {0}", varid);
+
+        Log.Debug("Successfully wrote {0} elements to variable {1}", n, varid);
+    }
+
+    private static void WriteVaraInt(int ncid, int varid, IRange[] hyperslab, Array data)
+    {
+        // NcType.NC_INT
+        nint[] start = hyperslab.Select(h => (nint)h.Start).ToArray();
+        nint[] count = hyperslab.Select(h => (nint)h.Count).ToArray();
+
+        long n = hyperslab.Product(r => r.Count);
+        Log.Debug("Writing {0} elements to variable {1}", n, varid);
+
+        int res = NetCDF.nc_put_vara_int(ncid, varid, start, count, (int[])data);
+        CheckResult(res, "Failed to write to variable {0}", varid);
+
+        Log.Debug("Successfully wrote {0} elements to variable {1}", n, varid);
+    }
+
+    private static void WriteVaraInt64(int ncid, int varid, IRange[] hyperslab, Array data)
+    {
+        // NcType.NC_INT64
+        nint[] start = hyperslab.Select(h => (nint)h.Start).ToArray();
+        nint[] count = hyperslab.Select(h => (nint)h.Count).ToArray();
+
+        long n = hyperslab.Product(r => r.Count);
+        Log.Debug("Writing {0} elements to variable {1}", n, varid);
+
+        int res = NetCDF.nc_put_vara_longlong(ncid, varid, start, count, (long[])data);
+        CheckResult(res, "Failed to write to variable {0}", varid);
+
+        Log.Debug("Successfully wrote {0} elements to variable {1}", n, varid);
+    }
+
+    private static void WriteVaraUshort(int ncid, int varid, IRange[] hyperslab, Array data)
+    {
+        // NcType.NC_USHORT
+        nint[] start = hyperslab.Select(h => (nint)h.Start).ToArray();
+        nint[] count = hyperslab.Select(h => (nint)h.Count).ToArray();
+
+        long n = hyperslab.Product(r => r.Count);
+        Log.Debug("Writing {0} elements to variable {1}", n, varid);
+
+        int res = NetCDF.nc_put_vara_ushort(ncid, varid, start, count, (ushort[])data);
+        CheckResult(res, "Failed to write to variable {0}", varid);
+
+        Log.Debug("Successfully wrote {0} elements to variable {1}", n, varid);
+    }
+
+    private static void WriteVaraUint(int ncid, int varid, IRange[] hyperslab, Array data)
+    {
+        // NcType.NC_UINT
+        nint[] start = hyperslab.Select(h => (nint)h.Start).ToArray();
+        nint[] count = hyperslab.Select(h => (nint)h.Count).ToArray();
+
+        long n = hyperslab.Product(r => r.Count);
+        Log.Debug("Writing {0} elements to variable {1}", n, varid);
+
+        int res = NetCDF.nc_put_vara_uint(ncid, varid, start, count, (uint[])data);
+        CheckResult(res, "Failed to write to variable {0}", varid);
+
+        Log.Debug("Successfully wrote {0} elements to variable {1}", n, varid);
+    }
+
+    private static void WriteVaraUint64(int ncid, int varid, IRange[] hyperslab, Array data)
+    {
+        // NcType.NC_UINT64
+        nint[] start = hyperslab.Select(h => (nint)h.Start).ToArray();
+        nint[] count = hyperslab.Select(h => (nint)h.Count).ToArray();
+
+        long n = hyperslab.Product(r => r.Count);
+        Log.Debug("Writing {0} elements to variable {1}", n, varid);
+
+        int res = NetCDF.nc_put_vara_ulonglong(ncid, varid, start, count, (ulong[])data);
+        CheckResult(res, "Failed to write to variable {0}", varid);
+
+        Log.Debug("Successfully wrote {0} elements to variable {1}", n, varid);
+    }
+
+    private static void WriteVaraFloat(int ncid, int varid, IRange[] hyperslab, Array data)
+    {
+        // NcType.NC_FLOAT
+        nint[] start = hyperslab.Select(h => (nint)h.Start).ToArray();
+        nint[] count = hyperslab.Select(h => (nint)h.Count).ToArray();
+
+        long n = hyperslab.Product(r => r.Count);
+        Log.Debug("Writing {0} elements to variable {1}", n, varid);
+
+        int res = NetCDF.nc_put_vara_float(ncid, varid, start, count, (float[])data);
+        CheckResult(res, "Failed to write to variable {0}", varid);
+
+        Log.Debug("Successfully wrote {0} elements to variable {1}", n, varid);
+    }
+
+    private static void WriteVaraDouble(int ncid, int varid, IRange[] hyperslab, Array data)
+    {
+        // NcType.NC_DOUBLE
+        nint[] start = hyperslab.Select(h => (nint)h.Start).ToArray();
+        nint[] count = hyperslab.Select(h => (nint)h.Count).ToArray();
+
+        long n = hyperslab.Product(r => r.Count);
+        Log.Debug("Writing {0} elements to variable {1}", n, varid);
+
+        int res = NetCDF.nc_put_vara_double(ncid, varid, start, count, (double[])data);
+        CheckResult(res, "Failed to write to variable {0}", varid);
+
+        Log.Debug("Successfully wrote {0} elements to variable {1}", n, varid);
+    }
+
+    private static void WriteVaraByte(int ncid, int varid, IRange[] hyperslab, Array data)
+    {
+        // NcType.NC_BYTE
+        nint[] start = hyperslab.Select(h => (nint)h.Start).ToArray();
+        nint[] count = hyperslab.Select(h => (nint)h.Count).ToArray();
+
+        long n = hyperslab.Product(r => r.Count);
+        Log.Debug("Writing {0} elements to variable {1}", n, varid);
+
+        int res = NetCDF.nc_put_vara_text(ncid, varid, start, count, (byte[])data);
+        CheckResult(res, "Failed to write to variable {0}", varid);
+
+        Log.Debug("Successfully wrote {0} elements to variable {1}", n, varid);
+    }
+
+    private static void WriteVaraUbyte(int ncid, int varid, IRange[] hyperslab, Array data)
+    {
+        // NcType.NC_UBYTE
+        nint[] start = hyperslab.Select(h => (nint)h.Start).ToArray();
+        nint[] count = hyperslab.Select(h => (nint)h.Count).ToArray();
+
+        long n = hyperslab.Product(r => r.Count);
+        Log.Debug("Writing {0} elements to variable {1}", n, varid);
+
+        int res = NetCDF.nc_put_vara_ubyte(ncid, varid, start, count, (byte[])data);
+        CheckResult(res, "Failed to write to variable {0}", varid);
+
+        Log.Debug("Successfully wrote {0} elements to variable {1}", n, varid);
+    }
+
+    private static void WriteVaraChar(int ncid, int varid, IRange[] hyperslab, Array data)
+    {
+        // NcType.NC_CHAR
+        nint[] start = hyperslab.Select(h => (nint)h.Start).ToArray();
+        nint[] count = hyperslab.Select(h => (nint)h.Count).ToArray();
+
+        long n = hyperslab.Product(r => r.Count);
+        Log.Debug("Writing {0} elements to variable {1}", n, varid);
+
+        int res = NetCDF.nc_put_vara_text(ncid, varid, start, count, (byte[])data);
+        CheckResult(res, "Failed to write to variable {0}", varid);
+
+        Log.Debug("Successfully wrote {0} elements to variable {1}", n, varid);
+    }
+
+    private static void WriteVaraString(int ncid, int varid, IRange[] hyperslab, Array data)
+    {
+        // NcType.NC_STRING
+        nint[] start = hyperslab.Select(h => (nint)h.Start).ToArray();
+        nint[] count = hyperslab.Select(h => (nint)h.Count).ToArray();
+
+        long n = hyperslab.Product(r => r.Count);
+        Log.Debug("Writing {0} elements to variable {1}", n, varid);
+
+        int res = NetCDF.nc_put_vara_string(ncid, varid, start, count, (string[])data);
+        CheckResult(res, "Failed to write to variable {0}", varid);
+
+        Log.Debug("Successfully wrote {0} elements to variable {1}", n, varid);
+    }
+
+    public static void WriteVariable(int ncid, int varid, Array data, IRange[] hyperslab)
+    {
+        if (data.Rank > 1)
+            data = data.ToFlatArray();
+
+        GetVariable(ncid, varid, out string name, out NcType type, out int[] dimids, out _);
+
+        int ndim = dimids.Length;
+        if (ndim != hyperslab.Length)
+            throw new InvalidOperationException($"Unable to write to variable {name}: only {hyperslab.Length} dimensions were specified, but variable has {ndim} dimensions");
+
+        if (data.Length != hyperslab.Product(r => r.Count))
+            throw new InvalidOperationException($"Unable to write to variable {name}: attempted to write {data.Length} values in a hyperslab of length {hyperslab.Product(r => r.Count)}");
+
+        switch (type)
+        {
+            case NcType.NC_SHORT:
+                WriteVaraShort(ncid, varid, hyperslab, data);
+                break;
+            case NcType.NC_INT:
+                WriteVaraInt(ncid, varid, hyperslab, data);
+                break;
+            case NcType.NC_INT64:
+                WriteVaraInt64(ncid, varid, hyperslab, data);
+                break;
+
+            case NcType.NC_USHORT:
+                WriteVaraUshort(ncid, varid, hyperslab, data);
+                break;
+            case NcType.NC_UINT:
+                WriteVaraUint(ncid, varid, hyperslab, data);
+                break;
+            case NcType.NC_UINT64:
+                WriteVaraUint64(ncid, varid, hyperslab, data);
+                break;
+
+            case NcType.NC_FLOAT:
+                WriteVaraFloat(ncid, varid, hyperslab, data);
+                break;
+            case NcType.NC_DOUBLE:
+                WriteVaraDouble(ncid, varid, hyperslab, data);
+                break;
+
+            case NcType.NC_BYTE:
+                WriteVaraByte(ncid, varid, hyperslab, data);
+                break;
+            case NcType.NC_UBYTE:
+                WriteVaraUbyte(ncid, varid, hyperslab, data);
+                break;
+            case NcType.NC_CHAR:
+                WriteVaraChar(ncid, varid, hyperslab, data);
+                break;
+            case NcType.NC_STRING:
+                WriteVaraChar(ncid, varid, hyperslab, data);
+                break;
+            default:
+                throw new NotImplementedException($"Unable to read from variable {name}: unsupported type: {type}");
+        }
+    }
+
+    /// <summary>
     /// Get the zlib configuration for the specified variable. If zlib
     /// compression is disabled, this will return a deflate level of 0.
     /// </summary>
@@ -479,22 +742,22 @@ internal static class NetCDFManaged
         return new ZLibOptions(shuf == 1, deflateLevel);
     }
 
-    public static void GetChunkSizes(int ncid, int varid, out ChunkMode mode, out int[] chunks)
+    public static unsafe void GetChunkSizes(int ncid, int varid, out ChunkMode mode, out int[] chunks)
     {
         Log.Debug("Checking chunk sizes for variable {0}", varid);
 
-        int res = NetCDFNative.nc_inq_var_chunking(ncid, varid, out int storagep, out nint chunksizesp);
-        CheckResult(res, "Failed to read chunk sizes for variable {0}", varid);
-
         int ndim = GetVariableNumDimensions(ncid, varid);
+        nint* ptr = stackalloc nint[ndim];
+
+        int res = NetCDFNative.nc_inq_var_chunking(ncid, varid, out int storagep, ptr);
+        CheckResult(res, "Failed to read chunk sizes for variable {0}", varid);
 
         chunks = new int[ndim];
         for (int i = 0; i < ndim; i++)
-            chunks[i] = (int)(chunksizesp + i);
+            chunks[i] = (int)ptr[i];
 
         mode = (ChunkMode)storagep;
-
-        Log.Debug("Variable {0} has chunk sizes: {1}", varid, chunksizesp);
+        Log.Debug("Variable {0} has chunk sizes: {1}", varid, string.Join(", ", chunks));
     }
 
     public static string GetAttributeName(int ncid, int varid, int number)

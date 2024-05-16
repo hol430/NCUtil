@@ -7,16 +7,20 @@ public class LogFile : ILogger
     private readonly TextWriter output;
     private readonly TextWriter error;
     private readonly DateTime startTime = DateTime.Now;
-    private DateTime progressStartTime = DateTime.Now;
     private readonly char progressEol;
+    private readonly TimeSpan progressInterval;
 
-    public LogFile(LogLevel verbosity, bool showProgress)
+    private DateTime progressStartTime = DateTime.Now;
+    private DateTime lastProgressReport = DateTime.MinValue;
+
+    public LogFile(LogLevel verbosity, bool showProgress, int progressInterval)
     {
         this.verbosity = verbosity;
         this.showProgress = showProgress;
         output = Console.Out;
         error = Console.Error;
         progressEol = Console.IsOutputRedirected ? '\n' : '\r';
+        this.progressInterval = TimeSpan.FromSeconds(progressInterval);
     }
 
     public void Log(LogLevel level, string format, params object[] args)
@@ -50,9 +54,15 @@ public class LogFile : ILogger
             return;
         }
 
+        DateTime now = DateTime.Now;
+        TimeSpan timeSinceLog = now - lastProgressReport;
+        if (timeSinceLog < progressInterval)
+            return;
+
+        lastProgressReport = now;
         double percent = 100.0 * progress;
-        TimeSpan elapsed = DateTime.Now - progressStartTime;
-        TimeSpan expected = elapsed / progress;
+        TimeSpan elapsed = now - progressStartTime;
+        TimeSpan expected = progress != 0 ? elapsed / progress : TimeSpan.MaxValue;
         TimeSpan remaining = expected - elapsed;
         output.Write($"Working: {percent:f2}%; Elapsed: {elapsed}; Remaining: {remaining}{progressEol}");
     }

@@ -10,4 +10,9 @@ public class Dimension
         Name = name;
         Size = size;
     }
+
+    public override string ToString()
+    {
+        return $"{Name}: {Size}";
+    }
 }

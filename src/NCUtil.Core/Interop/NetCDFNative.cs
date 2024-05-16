@@ -28,7 +28,7 @@ public static class NetCDFNative
 
     /// <summary>Inq chunking stuff for a var.</summary>
     [DllImport("netcdf", CallingConvention = CallingConvention.Cdecl)]
-    public static extern int nc_inq_var_chunking(int ncid, int varid, out int storagep, out nint chunksizesp);
+    public unsafe static extern int nc_inq_var_chunking(int ncid, int varid, out int storagep, nint* chunksizesp);
 
     /// <summary>Inq fill value setting for a var.</summary>
     [DllImport("netcdf", CallingConvention = CallingConvention.Cdecl)]

@@ -11,11 +11,6 @@ namespace NCUtil.Core.Models;
 public class NetCDFFile : IDisposable
 {
     /// <summary>
-    /// Name of the time dimension.
-    /// </summary>
-    public const string DimTime = "time";
-
-    /// <summary>
     /// Maximum size of a compact variable is 64 KiB.
     /// </summary>
     private const int maxCompactSize = 64 * 1024;
@@ -44,15 +39,21 @@ public class NetCDFFile : IDisposable
     public IReadOnlyList<Dimension> GetDimensions()
     {
         int[] dimids = GetDimensionIds(id);
+        return dimids.Select(GetDimension).ToArray();
+    }
 
-        Dimension[] dimensions = new Dimension[dimids.Length];
-        for (int i = 0; i < dimids.Length; i++)
-        {
-            string name = GetDimensionName(id, dimids[i]);
-            int length = GetDimensionLength(id, dimids[i]);
-            dimensions[i] = new Dimension(name, length);
-        }
-        return dimensions;
+    public Dimension GetDimension(string name)
+    {
+        int dimid = GetDimensionID(id, name);
+        int length = GetDimensionLength(id, dimid);
+        return new Dimension(name, length);
+    }
+
+    public Dimension GetDimension(int dimid)
+    {
+        string name = GetDimensionName(id, dimid);
+        int length = GetDimensionLength(id, dimid);
+        return new Dimension(name, length);
     }
 
     public IReadOnlyList<Variable> GetVariables()
@@ -61,16 +62,25 @@ public class NetCDFFile : IDisposable
 
         Variable[] variables = new Variable[varids.Length];
         for (int i = 0; i < varids.Length; i++)
-        {
-            GetVariable(id, varids[i], out string name, out NcType nctype, out int[] dimids, out int nattr);
-            IEnumerable<string> dimNames = dimids.Select(dimid => GetDimensionName(id, dimid));
-            Type type = nctype.ToType();
-            IEnumerable<Attribute> attributes = Enumerable.Range(0, nattr).Select(j => GetAttribute(id, varids[i], j));
-            ZLibOptions zlib = GetZLibOptions(id, varids[i]);
-            GetChunkSizes(id, varids[i], out ChunkMode chunkMode, out int[] chunks);
-            variables[i] = new Variable(name, dimNames, type, attributes, zlib, chunkMode, chunks);
-        }
+            variables[i] = GetVariable(varids[i]);
         return variables;
+    }
+
+    public Variable GetVariable(string name)
+    {
+        int varid = GetVariableID(id, name);
+        return GetVariable(varid);
+    }
+
+    public Variable GetVariable(int varid)
+    {
+        NetCDFManaged.GetVariable(id, varid, out string name, out NcType nctype, out int[] dimids, out int nattr);
+        IEnumerable<string> dimNames = dimids.Select(dimid => GetDimensionName(id, dimid));
+        Type type = nctype.ToType();
+        IEnumerable<Attribute> attributes = Enumerable.Range(0, nattr).Select(j => GetAttribute(id, varid, j));
+        ZLibOptions zlib = GetZLibOptions(id, varid);
+        GetChunkSizes(id, varid, out ChunkMode chunkMode, out int[] chunks);
+        return new Variable(name, dimNames, type, attributes, zlib, chunkMode, chunks);
     }
 
     /// <summary>
@@ -86,8 +96,7 @@ public class NetCDFFile : IDisposable
 
     public int GetNTime()
     {
-        int dimid = GetDimensionID(id, DimTime);
-        return GetDimensionLength(id, dimid);
+        return this.GetTimeDimension().Size;
     }
 
     /// <summary>
@@ -199,10 +208,21 @@ public class NetCDFFile : IDisposable
     /// <param name="hyperslab">The ranges to be read from the variable along
     /// each dimension. This array must have 1 element for each dimension of the
     /// variable, and must be in the same order as the dimensions.</param>
-    public Array Read(string name, Range[] hyperslab)
+    public Array Read(string name, IRange[] hyperslab)
     {
         int varid = GetVariableID(id, name);
         return ReadVariable(id, varid, hyperslab);
+    }
+
+    public void Write(string name, IRange[] hyperslab, Array array)
+    {
+        int varid = GetVariableID(id, name);
+        Write(varid, hyperslab, array);
+    }
+
+    private void Write(int varid, IRange[] hyperslab, Array array)
+    {
+        WriteVariable(id, varid, array, hyperslab);
     }
 
     private long GetVariableLength(int varid)

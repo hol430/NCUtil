@@ -1,8 +1,10 @@
 using NCUtil.Core.Configuration;
-using NCUtil.Core.IO;
 using NCUtil.Core.Logging;
 using NCUtil.Core.Extensions;
 using NCUtil.Core.Models;
+using System.Reflection;
+using Attribute = NCUtil.Core.Models.Attribute;
+using Range = NCUtil.Core.Models.Range;
 
 namespace NCUtil.Core;
 
@@ -15,7 +17,7 @@ public class MergeTime
     {
         this.options = options;
         startTime = DateTime.Now;
-        Log.ConfigureLogging((LogLevel)options.Verbosity, options.ShowProgress);
+        Log.ConfigureLogging((LogLevel)options.Verbosity, options.ShowProgress, options.ProgressInterval);
     }
 
     public void Run()
@@ -65,10 +67,11 @@ public class MergeTime
         // TODO: copy data.
         double start = 0.0;
         long totalSize = options.InputFiles.Select(i => new FileInfo(i).Length).Sum();
+        int offset = 0;
         foreach (string inputFile in options.InputFiles)
         {
-            double step = new FileInfo(inputFile).Length / totalSize;
-            CopyData(inputFile, outFile, p => Log.Progress(start + step * p));
+            double step = (double)new FileInfo(inputFile).Length / totalSize;
+            offset += CopyData(inputFile, outFile, offset, p => Log.Progress(start + step * p));
             start += step;
         }
 
@@ -120,27 +123,51 @@ public class MergeTime
 
         // Copy file-level metadata.
         ncIn.CopyMetadataTo(ncOut);
+
+        Dimension time = ncIn.GetTimeDimension();
+
+        // Copy all non-time dimensions to the output file.
+        Log.Diagnostic("Copying non-time coordinate variables to output file.");
+        foreach (Dimension dimension in ncIn.GetDimensions())
+        {
+            if (dimension.IsTime())
+                continue;
+
+            // Copy the contents of this variable from the input file to the
+            // output file. Here we assume that the variable name matches the
+            // dimension name.
+            ncIn.Append(ncOut, dimension.Name, time.Name, options.MinChunkSize, 0, _ => {});
+        }
+
+        Log.Information("Output file has been successfully initialised.");
     }
 
-    public void CopyData(string inputFile, string outputFile, Action<double> progressReporter)
+    public int CopyData(string inputFile, string outputFile, int offset, Action<double> progressReporter)
     {
         using NetCDFFile ncIn = new NetCDFFile(inputFile);
         using NetCDFFile ncOut = new NetCDFFile(outputFile, NetCDFFileMode.Append);
 
         IReadOnlyList<string> dimensions = ncIn.GetDimensions().Select(d => d.Name).ToList();
         IReadOnlyList<Variable> variables = ncIn.GetVariables();
-        long totalWeight = variables.Where(v => !v.Dimensions.Contains(v.Name)).Sum(v => ncIn.GetVariableLength(v.Name));
+
+        Variable varTime = ncIn.GetTimeVariable();
+        Dimension dimTime = ncIn.GetTimeDimension();
+
+        ncIn.Append(ncOut, varTime.Name, dimTime.Name, options.MinChunkSize, offset, _ => {});
 
         double start = 0;
+        long totalWeight = variables.Where(v => !v.Dimensions.Contains(v.Name)).Sum(v => ncIn.GetVariableLength(v.Name));
         foreach (Variable variable in variables)
         {
             if (dimensions.Contains(variable.Name))
                 continue;
 
-            double step = ncIn.GetVariableLength(variable.Name) / totalWeight;
-            AppendTime.AppendTimeVariable(ncIn, ncOut, variable.Name, p => progressReporter(start + step * p));
+            double step = (double)ncIn.GetVariableLength(variable.Name) / totalWeight;
+            ncIn.Append(ncOut, variable.Name, dimTime.Name, options.MinChunkSize, offset, p => progressReporter(start + step * p));
             start += step;
         }
+
+        return offset + dimTime.Size;
     }
 
     private IEnumerable<string> ReadRestartFile()

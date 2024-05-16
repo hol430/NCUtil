@@ -1,3 +1,5 @@
+using NCUtil.Core.Extensions;
+
 namespace NCUtil.Core.Models;
 
 public class Variable
@@ -19,5 +21,11 @@ public class Variable
         Zlib = zlib;
         ChunkSizes = chunkSizes.ToList();
         Chunking = chunking;
+    }
+
+    public override string ToString()
+    {
+        string dims = string.Join(", ", Dimensions);
+        return $"{DataType.ToFriendlyName()} {Name} ({dims})";
     }
 }
