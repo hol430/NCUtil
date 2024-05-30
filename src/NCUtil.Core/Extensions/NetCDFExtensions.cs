@@ -1,8 +1,7 @@
 using NCUtil.Core.Models;
 using NCUtil.Core.Logging;
-using NetCDFInterop;
 using Attribute = NCUtil.Core.Models.Attribute;
-using CommandLine;
+using NCUtil.Core.Interop;
 
 namespace NCUtil.Core.Extensions;
 
@@ -28,19 +27,84 @@ public static class NetCDFExtensions
     /// </summary>
     private const string attrUnits = "units";
 
-    public static CreateMode ToCreateMode(this NetCDFFileMode mode)
+    private static readonly IDictionary<Type, NCType> typeLookup = new Dictionary<Type, NCType>()
+    {
+        { typeof(short), NCType.NC_SHORT },
+        { typeof(int), NCType.NC_INT },
+        { typeof(long), NCType.NC_INT64 },
+
+        { typeof(ushort), NCType.NC_USHORT },
+        { typeof(uint), NCType.NC_UINT },
+        { typeof(ulong), NCType.NC_UINT64 },
+
+        { typeof(float), NCType.NC_FLOAT },
+        { typeof(double), NCType.NC_DOUBLE },
+
+        { typeof(sbyte), NCType.NC_BYTE },
+        { typeof(byte), NCType.NC_UBYTE },
+        { typeof(char), NCType.NC_CHAR },
+        { typeof(string), NCType.NC_STRING },
+    };
+
+    private static readonly IDictionary<NCType, int> dataSizes = new Dictionary<NCType, int>()
+    {
+        { NCType.NC_SHORT, sizeof(short) },
+        { NCType.NC_INT, sizeof(int) },
+        { NCType.NC_INT64, sizeof(long) },
+
+        { NCType.NC_USHORT, sizeof(ushort) },
+        { NCType.NC_UINT, sizeof(uint) },
+        { NCType.NC_UINT64, sizeof(ulong) },
+
+        { NCType.NC_FLOAT, sizeof(float) },
+        { NCType.NC_DOUBLE, sizeof(double) },
+
+        { NCType.NC_BYTE, sizeof(sbyte) },
+        { NCType.NC_UBYTE, sizeof(byte) },
+        { NCType.NC_CHAR, sizeof(char) },
+        // { NCType.NC_STRING, sizeof(char) },
+    };
+
+    public static NCType ToNCType(this Type type)
+    {
+        if (typeLookup.ContainsKey(type))
+            return typeLookup[type];
+
+        throw new Exception($"Type {type.FullName} has no netcdf equivalent");
+    }
+
+    public static Type ToType(this NCType type)
+    {
+        // All values of the NCType enum have an entry in this dictionary, so
+        // this should never throw unless ucar add a new NetCDF type in the future.
+        // TODO: how does this behave for user-defined types?
+        return typeLookup.First(pair => pair.Value == type).Key;
+    }
+
+    /// <summary>
+    /// Convert a file open mode to an integer that may be passed to native lib.
+    /// TBI: NC_SHARE.
+    /// </summary>
+    /// <param name="mode">File open mode.</param>
+    public static NCOpenMode ToOpenMode(this NetCDFFileMode mode)
     {
         switch (mode)
         {
             case NetCDFFileMode.Read:
-                return CreateMode.NC_NOWRITE;
+                return NCOpenMode.NC_NOWRITE;
             case NetCDFFileMode.Write:
             case NetCDFFileMode.Append:
-                return CreateMode.NC_WRITE;
+                return NCOpenMode.NC_WRITE;
             default:
-                throw new ArgumentException($"Unknown netcdf file mode: {mode}");
-            
+                throw new NotImplementedException($"Unknown file mode: {mode}");
         }
+    }
+
+    public static int DataSize(this NCType type)
+    {
+        if (dataSizes.ContainsKey(type))
+            return dataSizes[type];
+        throw new Exception($"Unknown data size for type {type}");
     }
 
     public static bool IsTime(this Dimension dimension)
@@ -166,7 +230,7 @@ public static class NetCDFExtensions
             Append2D(ncIn, ncOut, variableName, dimensionName, minChunkSize, offset, progressReporter);
         else if (varIn.Dimensions.Count == 3)
             Append3D(ncIn, ncOut, variableName, dimensionName, minChunkSize, offset, progressReporter);
-        else
+        else if (varIn.Dimensions.Count != 0)
             throw new NotImplementedException($"Appending along more than 4 dimensions is not yet implemented (but could theoretically be done).");
     }
 
@@ -191,6 +255,9 @@ public static class NetCDFExtensions
         if (!hasOffset)
             offset = 0;
 
+        // Create an array to hold each chunk of outputs.
+        Array chunk = Array.CreateInstance(varIn.DataType, chunkSize);
+
         // The number of elements that have been read.
         MutableRange rangeIn = new MutableRange();
         MutableRange rangeOut = new MutableRange();
@@ -202,7 +269,7 @@ public static class NetCDFExtensions
             rangeIn.Count = Math.Min(rangeIn.Start + chunkSize, dimension.Size);
 
             // Read a chunk of data from input file.
-            Array chunk = ncIn.Read(variableName, [rangeIn]);
+            varIn.Read(chunk, rangeIn);
 
             // TODO: implement units conversion.
             // TODO: different dimension order.
@@ -217,7 +284,7 @@ public static class NetCDFExtensions
             rangeOut.Count = rangeIn.Count;
 
             // Write data to the output file.
-            ncOut.Write(variableName, [rangeOut], chunk);
+            varOut.Write(chunk, rangeOut);
 
             // Progress reporting.
             progressReporter(1.0 * (rangeIn.Start + rangeIn.Count) / dimension.Size);
@@ -255,6 +322,9 @@ public static class NetCDFExtensions
 
         int offseti = offsetIndex == 0 ? offset : 0;
         int offsetj = offsetIndex == 1 ? offset : 0;
+
+        // Create an array to hold each chunk of outputs.
+        Array chunk = Array.CreateInstance(varIn.DataType, chunkSizes.Product());
 
         // The number of elements that have been read.
         MutableRange iread = new MutableRange();
@@ -294,10 +364,10 @@ public static class NetCDFExtensions
                 jwrite.Start = jlow + offsetj;
                 jwrite.Count = jread.Count;
 
-                Array chunk = ncIn.Read(variableName, [iread, jread]);
+                varIn.Read(chunk, iread, jread);
 
                 // Write data to the output file.
-                ncOut.Write(variableName, [iwrite, jwrite], chunk);
+                varOut.Write(chunk, iwrite, jwrite);
 
                 // Progress reporting.
                 it++;
@@ -333,6 +403,9 @@ public static class NetCDFExtensions
 
         // Offsets for each dimension.
         int[] offsets = dimensions.ToArray(d => d.Name == dimensionName ? offset : 0);
+
+        // Create an array to hold each chunk of outputs.
+        Array chunk = Array.CreateInstance(varIn.DataType, chunkSizes.Product());
 
         // The number of elements that have been read.
         MutableRange iread = new MutableRange();
@@ -389,10 +462,10 @@ public static class NetCDFExtensions
                     kwrite.Start = klow + offsets[2];
                     kwrite.Count = kread.Count;
 
-                    Array chunk = ncIn.Read(variableName, [iread, jread, kread]);
+                    varIn.Read(chunk, iread, jread, kread);
 
                     // Write data to the output file.
-                    ncOut.Write(variableName, [iwrite, jwrite, kwrite], chunk);
+                    varOut.Write(chunk, iwrite, jwrite, kwrite);
 
                     // Progress reporting.
                     it++;

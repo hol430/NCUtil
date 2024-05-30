@@ -1,3 +1,5 @@
+using NCUtil.Core.Extensions;
+
 namespace NCUtil.Core.Logging;
 
 public class LogFile : ILogger
@@ -64,7 +66,7 @@ public class LogFile : ILogger
         TimeSpan elapsed = now - progressStartTime;
         TimeSpan expected = progress != 0 ? elapsed / progress : TimeSpan.MaxValue;
         TimeSpan remaining = expected - elapsed;
-        output.Write($"Working: {percent:f2}%; Elapsed: {elapsed}; Remaining: {remaining}{progressEol}");
+        output.Write($"Working: {percent:f2}%; Elapsed: {elapsed.ToReadableString()}; Remaining: {remaining.ToReadableString()}{progressEol}");
     }
 
     public void InitWallTime()

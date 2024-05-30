@@ -118,7 +118,7 @@ public class MergeTime
         foreach (Variable variable in ncIn.GetVariables())
         {
             // Create variable.
-            ncOut.AddVariable(variable, chunkSizes, options.AllowCompact);
+            ncOut.AddVariable(variable, chunkSizes, options.AllowCompact, options.CompressionLevel);
         }
 
         // Copy file-level metadata.
@@ -156,13 +156,13 @@ public class MergeTime
         ncIn.Append(ncOut, varTime.Name, dimTime.Name, options.MinChunkSize, offset, _ => {});
 
         double start = 0;
-        long totalWeight = variables.Where(v => !v.Dimensions.Contains(v.Name)).Sum(v => ncIn.GetVariableLength(v.Name));
+        long totalWeight = variables.Where(v => !v.Dimensions.Contains(v.Name)).Sum(v => v.GetLength());
         foreach (Variable variable in variables)
         {
             if (dimensions.Contains(variable.Name))
                 continue;
 
-            double step = (double)ncIn.GetVariableLength(variable.Name) / totalWeight;
+            double step = (double)variable.GetLength() / totalWeight;
             ncIn.Append(ncOut, variable.Name, dimTime.Name, options.MinChunkSize, offset, p => progressReporter(start + step * p));
             start += step;
         }

@@ -2,7 +2,6 @@ using System.Security.Cryptography;
 using NCUtil.Core.Extensions;
 using NCUtil.Core.Interop;
 using NCUtil.Core.Logging;
-using NetCDFInterop;
 
 using static NCUtil.Core.Interop.NetCDFManaged;
 
@@ -74,13 +73,12 @@ public class NetCDFFile : IDisposable
 
     public Variable GetVariable(int varid)
     {
-        NetCDFManaged.GetVariable(id, varid, out string name, out NcType nctype, out int[] dimids, out int nattr);
+        NetCDFManaged.GetVariable(id, varid, out string name, out NCType type, out int[] dimids, out int nattr);
         IEnumerable<string> dimNames = dimids.Select(dimid => GetDimensionName(id, dimid));
-        Type type = nctype.ToType();
         IEnumerable<Attribute> attributes = Enumerable.Range(0, nattr).Select(j => GetAttribute(id, varid, j));
         ZLibOptions zlib = GetZLibOptions(id, varid);
         GetChunkSizes(id, varid, out ChunkMode chunkMode, out int[] chunks);
-        return new Variable(name, dimNames, type, attributes, zlib, chunkMode, chunks);
+        return new Variable(id, varid, name, dimNames, type, attributes, zlib, chunkMode, chunks);
     }
 
     /// <summary>
@@ -91,7 +89,7 @@ public class NetCDFFile : IDisposable
         int nattr = GetNumAttributes(id);
         Attribute[] attributes = new Attribute[nattr];
         return Enumerable.Range(0, nattr)
-                         .Select(i => GetAttribute(id, NcConst.NC_GLOBAL, i));
+                         .Select(i => GetAttribute(id, NCConst.NC_GLOBAL, i));
     }
 
     public int GetNTime()
@@ -110,7 +108,7 @@ public class NetCDFFile : IDisposable
         CreateDimension(id, name, length);
     }
 
-    public void AddVariable(Variable variable, ChunkSizes? chunking, bool allowCompact)
+    public void AddVariable(Variable variable, ChunkSizes? chunking, bool allowCompact, int compressionLevel)
     {
         if (readOnly)
             throw new InvalidOperationException($"Unable to create variable {variable.Name}: file is read-only");
@@ -123,8 +121,8 @@ public class NetCDFFile : IDisposable
 
         int varid = CreateVariable(id, variable.Name, variable.DataType, variable.Dimensions);
 
-        long variableLength = GetVariableLength(varid);
-        int dataSize = variable.DataType.ToNcType().DataSize();
+        long variableLength = variable.GetLength();
+        int dataSize = variable.DataType.ToNCType().DataSize();
         long variableSize = variableLength * dataSize;
 
         // Set chunk sizes and strategy.
@@ -148,7 +146,7 @@ public class NetCDFFile : IDisposable
                     throw new InvalidOperationException($"Chunk size on dimension {dimension} ({size}) is less than dimension length ({dimensionLength})");
             }
 
-            SetChunkSizes(variable.Name, sizes);
+            SetVariableChunking(id, varid, sizes);
         }
         else if (allowCompact && variableSize < maxCompactSize)
         {
@@ -162,7 +160,15 @@ public class NetCDFFile : IDisposable
 
         // Set compression.
         // TODO: custom compression type.
-        if (variable.Zlib != null && variable.Zlib.DeflateLevel > 0)
+        // Compression level of -1 means same as input file.
+        // Compression level of 0 means no compression.
+        // This should be refactored. It could be done better.
+        if (compressionLevel > 0)
+        {
+            ZLibOptions zlib = new ZLibOptions(true, compressionLevel);
+            EnableCompression(id, varid, zlib);
+        }
+        else if (compressionLevel == -1 && variable.Zlib != null && variable.Zlib.DeflateLevel > 0)
         {
             Log.Diagnostic("Enabling zlib compression on variable {0} in file {1} with deflation level {2}",
                 variable.Name,
@@ -192,57 +198,6 @@ public class NetCDFFile : IDisposable
     /// <param name="attribute">The attribute to be written.</param>
     public void SetGlobalAttribute(Attribute attribute)
     {
-        SetAttribute(id, NcConst.NC_GLOBAL, attribute);
-    }
-
-    public long GetVariableLength(string variable)
-    {
-        int varid = GetVariableID(id, variable);
-        return GetVariableLength(varid);
-    }
-
-    /// <summary>
-    /// Read from the specified variable.
-    /// </summary>
-    /// <param name="name">Name of the variable to be read.</param>
-    /// <param name="hyperslab">The ranges to be read from the variable along
-    /// each dimension. This array must have 1 element for each dimension of the
-    /// variable, and must be in the same order as the dimensions.</param>
-    public Array Read(string name, IRange[] hyperslab)
-    {
-        int varid = GetVariableID(id, name);
-        return ReadVariable(id, varid, hyperslab);
-    }
-
-    public void Write(string name, IRange[] hyperslab, Array array)
-    {
-        int varid = GetVariableID(id, name);
-        Write(varid, hyperslab, array);
-    }
-
-    private void Write(int varid, IRange[] hyperslab, Array array)
-    {
-        WriteVariable(id, varid, array, hyperslab);
-    }
-
-    private long GetVariableLength(int varid)
-    {
-        int[] dimids = GetVariableDimensionIDs(id, varid);
-        return dimids.Select(d => GetDimensionLength(id, d)).Product();
-    }
-
-    /// <summary>
-    /// Set the chunk sizes for the specified variable. This may only be called
-    /// after the variable is defined but before the file is closed.
-    /// </summary>
-    /// <param name="variable">Name of the variable.</param>
-    /// <param name="chunkSizes">Chunk size for each dimension - length must be same as number of dimensions for this variable.</param>
-    private void SetChunkSizes(string variable, int[] chunkSizes)
-    {
-        if (readOnly)
-            throw new InvalidOperationException($"Unable to set chunk sizes for variable {variable}: file is read-only");
-
-        int varid = GetVariableID(id, variable);
-        SetVariableChunking(id, varid, chunkSizes);
+        SetAttribute(id, NCConst.NC_GLOBAL, attribute);
     }
 }

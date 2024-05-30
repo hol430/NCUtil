@@ -4,7 +4,6 @@ using System.Text;
 using NCUtil.Core.Extensions;
 using NCUtil.Core.Logging;
 using NCUtil.Core.Models;
-using NetCDFInterop;
 using Attribute = NCUtil.Core.Models.Attribute;
 using Range = NCUtil.Core.Models.Range;
 
@@ -12,6 +11,7 @@ namespace NCUtil.Core.Interop;
 
 internal static class NetCDFManaged
 {
+    private const int nameBufferSize = 256;
     private static readonly Decoder utfDecoder;
     private static readonly Encoder utfEncoder;
 
@@ -32,8 +32,10 @@ internal static class NetCDFManaged
     {
         if (mode == NetCDFFileMode.Append && !File.Exists(file))
             throw new FileNotFoundException($"Unable to open netcdf file: file does not exist: {file}");
+        else if (mode == NetCDFFileMode.Write)
+            return CreateNetCDF(file);
 
-        int result = NetCDF.nc_open(file, mode.ToCreateMode(), out int id);
+        int result = NetCDFNative.nc_open(file, mode.ToOpenMode(), out int id);
         CheckResult(result, "Failed to open netcdf file");
 
         Log.Diagnostic($"Successfully opened netcdf file in mode {0}: '{1}'", mode, file);
@@ -44,7 +46,7 @@ internal static class NetCDFManaged
     {
         Log.Debug("Creating NetCDF file: '{0}'...", file);
 
-        int res = NetCDF.nc_create(file, CreateMode.NC_NETCDF4 | CreateMode.NC_CLOBBER, out int id);
+        int res = NetCDFNative.nc_create(file, NCCreateMode.NC_NETCDF4 | NCCreateMode.NC_CLOBBER, out int id);
         CheckResult(res, "Failed to create file {0}", file);
 
         Log.Debug("Successfully created NetCDF file: '{0}'", file);
@@ -62,7 +64,7 @@ internal static class NetCDFManaged
 
         Log.Debug("Closing netcdf file: {0}...", path);
 
-        int result = NetCDF.nc_close(ncid);
+        int result = NetCDFNative.nc_close(ncid);
         CheckResult(result, "Failed to close netcdf file: {0}", path);
 
         Log.Diagnostic("Successfully closed netcdf file: {0}", path);
@@ -100,7 +102,7 @@ internal static class NetCDFManaged
     {
         Log.Debug("Calling nc_inq_dimlen() for dimension {0}", dimid);
 
-        int res = NetCDF.nc_inq_dimlen(ncid, dimid, out nint length);
+        int res = NetCDFNative.nc_inq_dimlen(ncid, dimid, out nint length);
         CheckResult(res, "Failed to get length of dimension {0}: {1}", dimid);
 
         Log.Debug("Call to nc_inq_dimlen() was successful for dimension {0} and returned {1}", dimid, (int)length);
@@ -111,9 +113,11 @@ internal static class NetCDFManaged
     {
         Log.Debug("Calling nc_inq_dimname() for dimension {0}", dimid);
 
-        int res = NetCDF.nc_inq_dimname(ncid, dimid, out string name);
+        StringBuilder buffer = new StringBuilder(nameBufferSize + 1);
+        int res = NetCDFNative.nc_inq_dimname(ncid, dimid, buffer);
         CheckResult(res, "Failed to get name of dimension with ID {0}", dimid);
 
+        string name = buffer.ToString();
         Log.Debug("Call to nc_inq_dimname() was successful for dimension {0}: {1}", dimid, name);
         return name;
     }
@@ -122,7 +126,7 @@ internal static class NetCDFManaged
     {
         Log.Debug("Calling nc_inq_dimid() for dimension {0}", name);
 
-        int res = NetCDF.nc_inq_dimid(ncid, name, out int dimid);
+        int res = NetCDFNative.nc_inq_dimid(ncid, name, out int dimid);
         CheckResult(res, "Failed to get ID of dimension with name {0}", name);
 
         Log.Debug("Call to nc_inq_dimid() was successful; dimension {0} has ID {1}", name, dimid);
@@ -147,7 +151,7 @@ internal static class NetCDFManaged
 
         Log.Debug("Calling nc_inq_vardimid() for variable {0}", varid);
 
-        int res = NetCDF.nc_inq_vardimid(ncid, varid, dimids);
+        int res = NetCDFNative.nc_inq_vardimid(ncid, varid, dimids);
         CheckResult(res, "Failed to get dimension IDs for variable {0}", varid);
 
         Log.Debug("Call to nc_inq_vardimid() was successful");
@@ -160,11 +164,11 @@ internal static class NetCDFManaged
             throw new InvalidOperationException($"Attempted to create dimension with negative length: {length}");
 
         if (length == 0)
-            length = NcConst.NC_UNLIMITED;
+            length = NCConst.NC_UNLIMITED;
 
         Log.Debug("Calling nc_def_dim() to create dimension {0} with length {1}", name, length);
 
-        int res = NetCDF.nc_def_dim(ncid, name, (nint)length, out _);
+        int res = NetCDFNative.nc_def_dim(ncid, name, (nint)length, out _);
         CheckResult(res, "Failed to create dimension with name {0}", name);
 
         Log.Debug("Successfully created dimension {0} with length {1}", name, length);
@@ -201,22 +205,26 @@ internal static class NetCDFManaged
     {
         Log.Debug("Calling nc_inq_varndims() for variable {0}", varid);
 
-        int res = NetCDF.nc_inq_varndims(ncid, varid, out int ndim);
+        int res = NetCDFNative.nc_inq_varndims(ncid, varid, out int ndim);
         CheckResult(res, "nc_inq_varndims()");
 
         Log.Debug("nc_inq_varndims(): variable {0} has {1} dimensions", varid, ndim);
         return ndim;
     }
 
-    public static void GetVariable(int ncid, int varid, out string name, out NcType type, out int[] dimids, out int nattr)
+    public static void GetVariable(int ncid, int varid, out string name, out NCType type, out int[] dimids, out int nattr)
     {
         Log.Debug("Calling nc_inq_varname()");
 
         int ndims = GetVariableNumDimensions(ncid, varid);
         dimids = new int[ndims];
 
-        int res = NetCDF.nc_inq_var(ncid, varid, out name, out type, out int ndim2, dimids, out nattr);
+        StringBuilder namebuf = new StringBuilder(nameBufferSize);
+
+        int res = NetCDFNative.nc_inq_var(ncid, varid, namebuf, out type, out int ndim2, dimids, out nattr);
         CheckResult(res, "nc_inq_var(), varid = {0}", varid);
+
+        name = namebuf.ToString();
 
         if (ndims != ndim2)
             throw new Exception($"Number of dimensions for variable {name} has changed from {ndims} to {ndim2}");
@@ -224,506 +232,190 @@ internal static class NetCDFManaged
         Log.Debug("Call to nc_inq_var() was successful");
     }
 
-    public static NcType GetVariableType(int ncid, int varid)
+    public static NCType GetVariableType(int ncid, int varid)
     {
-        GetVariable(ncid, varid, out _, out NcType type, out _, out _);
+        GetVariable(ncid, varid, out _, out NCType type, out _, out _);
         return type;
     }
 
-    private static short[] ReadVaraShort(int ncid, int varid, IRange[] hyperslab)
+    internal static void WriteVaraShort(int ncid, int varid, IRange[] hyperslab, Array data)
     {
-        nint[] start = hyperslab.Select(h => (nint)h.Start).ToArray();
-        nint[] count = hyperslab.Select(h => (nint)h.Count).ToArray();
-        long n = hyperslab.Product(h => h.Count);
-        short[] data = new short[n];
-
-        Log.Debug("Reading {0} elements from variable {1}", n, varid);
-
-        int res = NetCDF.nc_get_vara_short(ncid, varid, start, count, data);
-        CheckResult(res, "Failed to read from variable {0}", varid);
-
-        Log.Debug("Successfully read from variable {0}", varid);
-        return data;
-    }
-
-    private static int[] ReadVaraInt(int ncid, int varid, IRange[] hyperslab)
-    {
-        nint[] start = hyperslab.Select(h => (nint)h.Start).ToArray();
-        nint[] count = hyperslab.Select(h => (nint)h.Count).ToArray();
-        long n = hyperslab.Product(h => h.Count);
-        int[] data = new int[n];
-
-        Log.Debug("Reading {0} elements from variable {1}", n, varid);
-
-        int res = NetCDF.nc_get_vara_int(ncid, varid, start, count, data);
-        CheckResult(res, "Failed to read from variable {0}", varid);
-
-        Log.Debug("Successfully read from variable {0}", varid);
-        return data;
-    }
-
-    private static long[] ReadVaraInt64(int ncid, int varid, IRange[] hyperslab)
-    {
-        nint[] start = hyperslab.Select(h => (nint)h.Start).ToArray();
-        nint[] count = hyperslab.Select(h => (nint)h.Count).ToArray();
-        long n = hyperslab.Product(h => h.Count);
-        long[] data = new long[n];
-
-        Log.Debug("Reading {0} elements from variable {1}", n, varid);
-
-        int res = NetCDF.nc_get_vara_longlong(ncid, varid, start, count, data);
-        CheckResult(res, "Failed to read from variable {0}", varid);
-
-        Log.Debug("Successfully read from variable {0}", varid);
-        return data;
-    }
-
-    private static ushort[] ReadVaraUshort(int ncid, int varid, IRange[] hyperslab)
-    {
-        nint[] start = hyperslab.Select(h => (nint)h.Start).ToArray();
-        nint[] count = hyperslab.Select(h => (nint)h.Count).ToArray();
-        long n = hyperslab.Product(h => h.Count);
-        ushort[] data = new ushort[n];
-
-        Log.Debug("Reading {0} elements from variable {1}", n, varid);
-
-        int res = NetCDF.nc_get_vara_ushort(ncid, varid, start, count, data);
-        CheckResult(res, "Failed to read from variable {0}", varid);
-
-        Log.Debug("Successfully read from variable {0}", varid);
-        return data;
-    }
-
-    private static uint[] ReadVaraUint(int ncid, int varid, IRange[] hyperslab)
-    {
-        nint[] start = hyperslab.Select(h => (nint)h.Start).ToArray();
-        nint[] count = hyperslab.Select(h => (nint)h.Count).ToArray();
-        long n = hyperslab.Product(h => h.Count);
-        uint[] data = new uint[n];
-
-        Log.Debug("Reading {0} elements from variable {1}", n, varid);
-
-        int res = NetCDF.nc_get_vara_uint(ncid, varid, start, count, data);
-        CheckResult(res, "Failed to read from variable {0}", varid);
-
-        Log.Debug("Successfully read from variable {0}", varid);
-        return data;
-    }
-
-    private static ulong[] ReadVaraUint64(int ncid, int varid, IRange[] hyperslab)
-    {
-        nint[] start = hyperslab.Select(h => (nint)h.Start).ToArray();
-        nint[] count = hyperslab.Select(h => (nint)h.Count).ToArray();
-        long n = hyperslab.Product(h => h.Count);
-        ulong[] data = new ulong[n];
-
-        Log.Debug("Reading {0} elements from variable {1}", n, varid);
-
-        int res = NetCDF.nc_get_vara_ulonglong(ncid, varid, start, count, data);
-        CheckResult(res, "Failed to read from variable {0}", varid);
-
-        Log.Debug("Successfully read from variable {0}", varid);
-        return data;
-    }
-
-    private static float[] ReadVaraFloat(int ncid, int varid, IRange[] hyperslab)
-    {
-        nint[] start = hyperslab.Select(h => (nint)h.Start).ToArray();
-        nint[] count = hyperslab.Select(h => (nint)h.Count).ToArray();
-        long n = hyperslab.Product(h => h.Count);
-        float[] data = new float[n];
-
-        Log.Debug("Reading {0} elements from variable {1}", n, varid);
-
-        int res = NetCDF.nc_get_vara_float(ncid, varid, start, count, data);
-        CheckResult(res, "Failed to read from variable {0}", varid);
-
-        Log.Debug("Successfully read from variable {0}", varid);
-        return data;
-    }
-
-    private static double[] ReadVaraDouble(int ncid, int varid, IRange[] hyperslab)
-    {
-        nint[] start = hyperslab.Select(h => (nint)h.Start).ToArray();
-        nint[] count = hyperslab.Select(h => (nint)h.Count).ToArray();
-        long n = hyperslab.Product(h => h.Count);
-        double[] data = new double[n];
-
-        Log.Debug("Reading {0} elements from variable {1}", n, varid);
-
-        int res = NetCDF.nc_get_vara_double(ncid, varid, start, count, data);
-        CheckResult(res, "Failed to read from variable {0}", varid);
-
-        Log.Debug("Successfully read from variable {0}", varid);
-        return data;
-    }
-
-    private static sbyte[] ReadVaraByte(int ncid, int varid, IRange[] hyperslab)
-    {
-        nint[] start = hyperslab.Select(h => (nint)h.Start).ToArray();
-        nint[] count = hyperslab.Select(h => (nint)h.Count).ToArray();
-        long n = hyperslab.Product(h => h.Count);
-        sbyte[] data = new sbyte[n];
-
-        Log.Debug("Reading {0} elements from variable {1}", n, varid);
-
-        int res = NetCDF.nc_get_vara_schar(ncid, varid, start, count, data);
-        CheckResult(res, "Failed to read from variable {0}", varid);
-
-        Log.Debug("Successfully read from variable {0}", varid);
-        return data;
-    }
-
-    private static byte[] ReadVaraUbyte(int ncid, int varid, IRange[] hyperslab)
-    {
-        nint[] start = hyperslab.Select(h => (nint)h.Start).ToArray();
-        nint[] count = hyperslab.Select(h => (nint)h.Count).ToArray();
-        long n = hyperslab.Product(h => h.Count);
-        byte[] data = new byte[n];
-
-        Log.Debug("Reading {0} elements from variable {1}", n, varid);
-
-        int res = NetCDF.nc_get_vara_ubyte(ncid, varid, start, count, data);
-        CheckResult(res, "Failed to read from variable {0}", varid);
-
-        Log.Debug("Successfully read from variable {0}", varid);
-        return data;
-    }
-
-    private static byte[] ReadVaraChar(int ncid, int varid, IRange[] hyperslab)
-    {
-        nint[] start = hyperslab.Select(h => (nint)h.Start).ToArray();
-        nint[] count = hyperslab.Select(h => (nint)h.Count).ToArray();
-        long n = hyperslab.Product(h => h.Count);
-        byte[] data = new byte[n];
-
-        Log.Debug("Reading {0} elements from variable {1}", n, varid);
-
-        int res = NetCDF.nc_get_vara_text(ncid, varid, start, count, data);
-        CheckResult(res, "Failed to read from variable {0}", varid);
-
-        Log.Debug("Successfully read from variable {0}", varid);
-        return data;
-    }
-
-    private static string[] ReadVaraString(int ncid, int varid, IRange[] hyperslab)
-    {
-        nint[] start = hyperslab.Select(h => (nint)h.Start).ToArray();
-        nint[] count = hyperslab.Select(h => (nint)h.Count).ToArray();
-        long n = hyperslab.Product(h => h.Count);
-        string[] data = new string[n];
-
-        Log.Debug("Reading {0} elements from variable {1}", n, varid);
-
-        int res = NetCDF.nc_get_vara_string(ncid, varid, start, count, data);
-        CheckResult(res, "Failed to read from variable {0}", varid);
-
-        Log.Debug("Successfully read from variable {0}", varid);
-        return data;
-    }
-
-    /// <summary>
-    /// Call the appropriate nc_get_vara_X() function to read the specified
-    /// hyperslab from the specified variable, and return the result as a
-    /// 1-dimensional array with the last dimension varying most rapidly, and
-    /// the first dimension varying most slowly.
-    /// </summary>
-    /// <param name="ncid">ID of the NetCDF file.</param>
-    /// <param name="varid">ID of the variable to be read.</param>
-    /// <param name="hyperslab">The hyperslab to read.</param>
-    private static Array ReadVariable1D(int ncid, int varid, IRange[] hyperslab)
-    {
-        GetVariable(ncid, varid, out string name, out NcType type, out int[] dimids, out _);
-        int ndim = dimids.Length;
-        if (ndim != hyperslab.Length)
-            throw new InvalidOperationException($"Unable to read from variable {name}: only {hyperslab.Length} dimensions were specified, but variable has {ndim} dimensions");
-
-        switch (type)
-        {
-            case NcType.NC_SHORT:
-                return ReadVaraShort(ncid, varid, hyperslab);
-            case NcType.NC_INT:
-                return ReadVaraInt(ncid, varid, hyperslab);
-            case NcType.NC_INT64:
-                return ReadVaraInt64(ncid, varid, hyperslab);
-
-            case NcType.NC_USHORT:
-                return ReadVaraUshort(ncid, varid, hyperslab);
-            case NcType.NC_UINT:
-                return ReadVaraUint(ncid, varid, hyperslab);
-            case NcType.NC_UINT64:
-                return ReadVaraUint64(ncid, varid, hyperslab);
-
-            case NcType.NC_FLOAT:
-                return ReadVaraFloat(ncid, varid, hyperslab);
-            case NcType.NC_DOUBLE:
-                return ReadVaraDouble(ncid, varid, hyperslab);
-
-            case NcType.NC_BYTE:
-                return ReadVaraByte(ncid, varid, hyperslab);
-            case NcType.NC_UBYTE:
-                return ReadVaraUbyte(ncid, varid, hyperslab);
-            case NcType.NC_CHAR:
-                return ReadVaraChar(ncid, varid, hyperslab);
-            case NcType.NC_STRING:
-                return ReadVaraChar(ncid, varid, hyperslab);
-            default:
-                throw new NotImplementedException($"Unable to read from variable {name}: unsupported type: {type}");
-        }
-    }
-
-    /// <summary>
-    /// Read the specified hyperslab from a variable and return the result as a
-    /// multi-dimensional array matching the shape of the variable.
-    /// </summary>
-    /// <param name="ncid">ID of the NetCDF file.</param>
-    /// <param name="varid">ID of the variable to be read.</param>
-    /// <param name="hyperslab">The hyperslab to read.</param>
-    public static Array ReadVariable(int ncid, int varid, IRange[] hyperslab)
-    {
-        Array result1d = ReadVariable1D(ncid, varid, hyperslab);
-        int[] shape = hyperslab.Select(h => h.Count).ToArray();
-        return result1d.ToMultiDimensionalArray(shape);
-    }
-
-    private static void WriteVaraShort(int ncid, int varid, IRange[] hyperslab, Array data)
-    {
-        // NcType.NC_SHORT
+        // NCType.NC_SHORT
         nint[] start = hyperslab.Select(h => (nint)h.Start).ToArray();
         nint[] count = hyperslab.Select(h => (nint)h.Count).ToArray();
 
         long n = hyperslab.Product(r => r.Count);
         Log.Debug("Writing {0} elements to variable {1}", n, varid);
 
-        int res = NetCDF.nc_put_vara_short(ncid, varid, start, count, (short[])data);
+        int res = NetCDFNative.nc_put_vara_short(ncid, varid, start, count, (short[])data);
         CheckResult(res, "Failed to write to variable {0}", varid);
 
         Log.Debug("Successfully wrote {0} elements to variable {1}", n, varid);
     }
 
-    private static void WriteVaraInt(int ncid, int varid, IRange[] hyperslab, Array data)
+    internal static void WriteVaraInt(int ncid, int varid, IRange[] hyperslab, Array data)
     {
-        // NcType.NC_INT
+        // NCType.NC_INT
         nint[] start = hyperslab.Select(h => (nint)h.Start).ToArray();
         nint[] count = hyperslab.Select(h => (nint)h.Count).ToArray();
 
         long n = hyperslab.Product(r => r.Count);
         Log.Debug("Writing {0} elements to variable {1}", n, varid);
 
-        int res = NetCDF.nc_put_vara_int(ncid, varid, start, count, (int[])data);
+        int res = NetCDFNative.nc_put_vara_int(ncid, varid, start, count, (int[])data);
         CheckResult(res, "Failed to write to variable {0}", varid);
 
         Log.Debug("Successfully wrote {0} elements to variable {1}", n, varid);
     }
 
-    private static void WriteVaraInt64(int ncid, int varid, IRange[] hyperslab, Array data)
+    internal static void WriteVaraInt64(int ncid, int varid, IRange[] hyperslab, Array data)
     {
-        // NcType.NC_INT64
+        // NCType.NC_INT64
         nint[] start = hyperslab.Select(h => (nint)h.Start).ToArray();
         nint[] count = hyperslab.Select(h => (nint)h.Count).ToArray();
 
         long n = hyperslab.Product(r => r.Count);
         Log.Debug("Writing {0} elements to variable {1}", n, varid);
 
-        int res = NetCDF.nc_put_vara_longlong(ncid, varid, start, count, (long[])data);
+        int res = NetCDFNative.nc_put_vara_longlong(ncid, varid, start, count, (long[])data);
         CheckResult(res, "Failed to write to variable {0}", varid);
 
         Log.Debug("Successfully wrote {0} elements to variable {1}", n, varid);
     }
 
-    private static void WriteVaraUshort(int ncid, int varid, IRange[] hyperslab, Array data)
+    internal static void WriteVaraUshort(int ncid, int varid, IRange[] hyperslab, Array data)
     {
-        // NcType.NC_USHORT
+        // NCType.NC_USHORT
         nint[] start = hyperslab.Select(h => (nint)h.Start).ToArray();
         nint[] count = hyperslab.Select(h => (nint)h.Count).ToArray();
 
         long n = hyperslab.Product(r => r.Count);
         Log.Debug("Writing {0} elements to variable {1}", n, varid);
 
-        int res = NetCDF.nc_put_vara_ushort(ncid, varid, start, count, (ushort[])data);
+        int res = NetCDFNative.nc_put_vara_ushort(ncid, varid, start, count, (ushort[])data);
         CheckResult(res, "Failed to write to variable {0}", varid);
 
         Log.Debug("Successfully wrote {0} elements to variable {1}", n, varid);
     }
 
-    private static void WriteVaraUint(int ncid, int varid, IRange[] hyperslab, Array data)
+    internal static void WriteVaraUint(int ncid, int varid, IRange[] hyperslab, Array data)
     {
-        // NcType.NC_UINT
+        // NCType.NC_UINT
         nint[] start = hyperslab.Select(h => (nint)h.Start).ToArray();
         nint[] count = hyperslab.Select(h => (nint)h.Count).ToArray();
 
         long n = hyperslab.Product(r => r.Count);
         Log.Debug("Writing {0} elements to variable {1}", n, varid);
 
-        int res = NetCDF.nc_put_vara_uint(ncid, varid, start, count, (uint[])data);
+        int res = NetCDFNative.nc_put_vara_uint(ncid, varid, start, count, (uint[])data);
         CheckResult(res, "Failed to write to variable {0}", varid);
 
         Log.Debug("Successfully wrote {0} elements to variable {1}", n, varid);
     }
 
-    private static void WriteVaraUint64(int ncid, int varid, IRange[] hyperslab, Array data)
+    internal static void WriteVaraUint64(int ncid, int varid, IRange[] hyperslab, Array data)
     {
-        // NcType.NC_UINT64
+        // NCType.NC_UINT64
         nint[] start = hyperslab.Select(h => (nint)h.Start).ToArray();
         nint[] count = hyperslab.Select(h => (nint)h.Count).ToArray();
 
         long n = hyperslab.Product(r => r.Count);
         Log.Debug("Writing {0} elements to variable {1}", n, varid);
 
-        int res = NetCDF.nc_put_vara_ulonglong(ncid, varid, start, count, (ulong[])data);
+        int res = NetCDFNative.nc_put_vara_ulonglong(ncid, varid, start, count, (ulong[])data);
         CheckResult(res, "Failed to write to variable {0}", varid);
 
         Log.Debug("Successfully wrote {0} elements to variable {1}", n, varid);
     }
 
-    private static void WriteVaraFloat(int ncid, int varid, IRange[] hyperslab, Array data)
+    internal static void WriteVaraFloat(int ncid, int varid, IRange[] hyperslab, Array data)
     {
-        // NcType.NC_FLOAT
+        // NCType.NC_FLOAT
         nint[] start = hyperslab.Select(h => (nint)h.Start).ToArray();
         nint[] count = hyperslab.Select(h => (nint)h.Count).ToArray();
 
         long n = hyperslab.Product(r => r.Count);
         Log.Debug("Writing {0} elements to variable {1}", n, varid);
 
-        int res = NetCDF.nc_put_vara_float(ncid, varid, start, count, (float[])data);
+        int res = NetCDFNative.nc_put_vara_float(ncid, varid, start, count, (float[])data);
         CheckResult(res, "Failed to write to variable {0}", varid);
 
         Log.Debug("Successfully wrote {0} elements to variable {1}", n, varid);
     }
 
-    private static void WriteVaraDouble(int ncid, int varid, IRange[] hyperslab, Array data)
+    internal static void WriteVaraDouble(int ncid, int varid, IRange[] hyperslab, Array data)
     {
-        // NcType.NC_DOUBLE
+        // NCType.NC_DOUBLE
         nint[] start = hyperslab.Select(h => (nint)h.Start).ToArray();
         nint[] count = hyperslab.Select(h => (nint)h.Count).ToArray();
 
         long n = hyperslab.Product(r => r.Count);
         Log.Debug("Writing {0} elements to variable {1}", n, varid);
 
-        int res = NetCDF.nc_put_vara_double(ncid, varid, start, count, (double[])data);
+        int res = NetCDFNative.nc_put_vara_double(ncid, varid, start, count, (double[])data);
         CheckResult(res, "Failed to write to variable {0}", varid);
 
         Log.Debug("Successfully wrote {0} elements to variable {1}", n, varid);
     }
 
-    private static void WriteVaraByte(int ncid, int varid, IRange[] hyperslab, Array data)
+    internal static void WriteVaraByte(int ncid, int varid, IRange[] hyperslab, Array data)
     {
-        // NcType.NC_BYTE
+        // NCType.NC_BYTE
         nint[] start = hyperslab.Select(h => (nint)h.Start).ToArray();
         nint[] count = hyperslab.Select(h => (nint)h.Count).ToArray();
 
         long n = hyperslab.Product(r => r.Count);
         Log.Debug("Writing {0} elements to variable {1}", n, varid);
 
-        int res = NetCDF.nc_put_vara_text(ncid, varid, start, count, (byte[])data);
+        int res = NetCDFNative.nc_put_vara_text(ncid, varid, start, count, (byte[])data);
         CheckResult(res, "Failed to write to variable {0}", varid);
 
         Log.Debug("Successfully wrote {0} elements to variable {1}", n, varid);
     }
 
-    private static void WriteVaraUbyte(int ncid, int varid, IRange[] hyperslab, Array data)
+    internal static void WriteVaraUbyte(int ncid, int varid, IRange[] hyperslab, Array data)
     {
-        // NcType.NC_UBYTE
+        // NCType.NC_UBYTE
         nint[] start = hyperslab.Select(h => (nint)h.Start).ToArray();
         nint[] count = hyperslab.Select(h => (nint)h.Count).ToArray();
 
         long n = hyperslab.Product(r => r.Count);
         Log.Debug("Writing {0} elements to variable {1}", n, varid);
 
-        int res = NetCDF.nc_put_vara_ubyte(ncid, varid, start, count, (byte[])data);
+        int res = NetCDFNative.nc_put_vara_ubyte(ncid, varid, start, count, (byte[])data);
         CheckResult(res, "Failed to write to variable {0}", varid);
 
         Log.Debug("Successfully wrote {0} elements to variable {1}", n, varid);
     }
 
-    private static void WriteVaraChar(int ncid, int varid, IRange[] hyperslab, Array data)
+    internal static void WriteVaraChar(int ncid, int varid, IRange[] hyperslab, Array data)
     {
-        // NcType.NC_CHAR
+        // NCType.NC_CHAR
         nint[] start = hyperslab.Select(h => (nint)h.Start).ToArray();
         nint[] count = hyperslab.Select(h => (nint)h.Count).ToArray();
 
         long n = hyperslab.Product(r => r.Count);
         Log.Debug("Writing {0} elements to variable {1}", n, varid);
 
-        int res = NetCDF.nc_put_vara_text(ncid, varid, start, count, (byte[])data);
+        int res = NetCDFNative.nc_put_vara_text(ncid, varid, start, count, (byte[])data);
         CheckResult(res, "Failed to write to variable {0}", varid);
 
         Log.Debug("Successfully wrote {0} elements to variable {1}", n, varid);
     }
 
-    private static void WriteVaraString(int ncid, int varid, IRange[] hyperslab, Array data)
+    internal static void WriteVaraString(int ncid, int varid, IRange[] hyperslab, Array data)
     {
-        // NcType.NC_STRING
+        // NCType.NC_STRING
         nint[] start = hyperslab.Select(h => (nint)h.Start).ToArray();
         nint[] count = hyperslab.Select(h => (nint)h.Count).ToArray();
 
         long n = hyperslab.Product(r => r.Count);
         Log.Debug("Writing {0} elements to variable {1}", n, varid);
 
-        int res = NetCDF.nc_put_vara_string(ncid, varid, start, count, (string[])data);
+        int res = NetCDFNative.nc_put_vara_string(ncid, varid, start, count, (string[])data);
         CheckResult(res, "Failed to write to variable {0}", varid);
 
         Log.Debug("Successfully wrote {0} elements to variable {1}", n, varid);
-    }
-
-    public static void WriteVariable(int ncid, int varid, Array data, IRange[] hyperslab)
-    {
-        if (data.Rank > 1)
-            data = data.ToFlatArray();
-
-        GetVariable(ncid, varid, out string name, out NcType type, out int[] dimids, out _);
-
-        int ndim = dimids.Length;
-        if (ndim != hyperslab.Length)
-            throw new InvalidOperationException($"Unable to write to variable {name}: only {hyperslab.Length} dimensions were specified, but variable has {ndim} dimensions");
-
-        if (data.Length != hyperslab.Product(r => r.Count))
-            throw new InvalidOperationException($"Unable to write to variable {name}: attempted to write {data.Length} values in a hyperslab of length {hyperslab.Product(r => r.Count)}");
-
-        switch (type)
-        {
-            case NcType.NC_SHORT:
-                WriteVaraShort(ncid, varid, hyperslab, data);
-                break;
-            case NcType.NC_INT:
-                WriteVaraInt(ncid, varid, hyperslab, data);
-                break;
-            case NcType.NC_INT64:
-                WriteVaraInt64(ncid, varid, hyperslab, data);
-                break;
-
-            case NcType.NC_USHORT:
-                WriteVaraUshort(ncid, varid, hyperslab, data);
-                break;
-            case NcType.NC_UINT:
-                WriteVaraUint(ncid, varid, hyperslab, data);
-                break;
-            case NcType.NC_UINT64:
-                WriteVaraUint64(ncid, varid, hyperslab, data);
-                break;
-
-            case NcType.NC_FLOAT:
-                WriteVaraFloat(ncid, varid, hyperslab, data);
-                break;
-            case NcType.NC_DOUBLE:
-                WriteVaraDouble(ncid, varid, hyperslab, data);
-                break;
-
-            case NcType.NC_BYTE:
-                WriteVaraByte(ncid, varid, hyperslab, data);
-                break;
-            case NcType.NC_UBYTE:
-                WriteVaraUbyte(ncid, varid, hyperslab, data);
-                break;
-            case NcType.NC_CHAR:
-                WriteVaraChar(ncid, varid, hyperslab, data);
-                break;
-            case NcType.NC_STRING:
-                WriteVaraChar(ncid, varid, hyperslab, data);
-                break;
-            default:
-                throw new NotImplementedException($"Unable to read from variable {name}: unsupported type: {type}");
-        }
     }
 
     /// <summary>
@@ -762,11 +454,14 @@ internal static class NetCDFManaged
 
     public static string GetAttributeName(int ncid, int varid, int number)
     {
+        StringBuilder namebuf = new StringBuilder(nameBufferSize);
+
         Log.Debug("Calling nc_inq_attname()");
 
-        int res = NetCDF.nc_inq_attname(ncid, varid, number, out string name);
+        int res = NetCDFNative.nc_inq_attname(ncid, varid, number, namebuf);
         CheckResult(res, "nc_inq_attname");
 
+        string name = namebuf.ToString();
         Log.Debug("Variable {0} attribute {1} has name {2}", varid, number, name);
         return name;
     }
@@ -785,47 +480,78 @@ internal static class NetCDFManaged
         return data;
     }
 
-    public static object GetAttributeValue(int ncid, int varid, string name, NcType type, int length)
+    private static string HandleNullableString(string? ns)
+    {
+        return ns ?? string.Empty;
+    }
+
+    public static int nc_get_att_string(int ncid, int varid, string name, string[] ip)
+    {
+        IntPtr[] parr = new IntPtr[ip.Length];
+
+        int res = NetCDFNative.nc_get_att_string(ncid, varid, name, parr);
+        CheckResult(res, "Failed to read string attribute {0} of variable {1}", name, varid);
+
+        for (int i = 0; i < ip.Length; i++)
+            ip[i] = HandleNullableString(ReadString(parr[i]));
+
+        return NetCDFNative.nc_free_string(new IntPtr(ip.Length), parr);
+    }
+
+    public static object GetAttributeValue(int ncid, int varid, string name, NCType type, int length)
     {
         switch (type)
         {
-            case NcType.NC_SHORT:
-                return GetAttributeValue<short>(ncid, varid, name, length, NetCDF.nc_get_att_short);
-            case NcType.NC_INT:
-                return GetAttributeValue<int>(ncid, varid, name, length, NetCDF.nc_get_att_int);
-            case NcType.NC_INT64:
-                return GetAttributeValue<long>(ncid, varid, name, length, NetCDF.nc_get_att_longlong);
+            case NCType.NC_SHORT:
+                return GetAttributeValue<short>(ncid, varid, name, length, NetCDFNative.nc_get_att_short);
+            case NCType.NC_INT:
+                return GetAttributeValue<int>(ncid, varid, name, length, NetCDFNative.nc_get_att_int);
+            case NCType.NC_INT64:
+                return GetAttributeValue<long>(ncid, varid, name, length, NetCDFNative.nc_get_att_longlong);
 
-            case NcType.NC_USHORT:
-                return GetAttributeValue<ushort>(ncid, varid, name, length, NetCDF.nc_get_att_ushort);
-            case NcType.NC_UINT:
-                return GetAttributeValue<uint>(ncid, varid, name, length, NetCDF.nc_get_att_uint);
-            case NcType.NC_UINT64:
-                return GetAttributeValue<ulong>(ncid, varid, name, length, NetCDF.nc_get_att_ulonglong);
+            case NCType.NC_USHORT:
+                return GetAttributeValue<ushort>(ncid, varid, name, length, NetCDFNative.nc_get_att_ushort);
+            case NCType.NC_UINT:
+                return GetAttributeValue<uint>(ncid, varid, name, length, NetCDFNative.nc_get_att_uint);
+            case NCType.NC_UINT64:
+                return GetAttributeValue<ulong>(ncid, varid, name, length, NetCDFNative.nc_get_att_ulonglong);
 
-            case NcType.NC_FLOAT:
-                return GetAttributeValue<float>(ncid, varid, name, length, NetCDF.nc_get_att_float);
-            case NcType.NC_DOUBLE:
-                return GetAttributeValue<double>(ncid, varid, name, length, NetCDF.nc_get_att_double);
+            case NCType.NC_FLOAT:
+                return GetAttributeValue<float>(ncid, varid, name, length, NetCDFNative.nc_get_att_float);
+            case NCType.NC_DOUBLE:
+                return GetAttributeValue<double>(ncid, varid, name, length, NetCDFNative.nc_get_att_double);
 
-            case NcType.NC_BYTE:
-                return GetAttributeValue<sbyte>(ncid, varid, name, length, NetCDF.nc_get_att_schar);
-            case NcType.NC_UBYTE:
-                return GetAttributeValue<byte>(ncid, varid, name, length, NetCDF.nc_get_att_uchar);
-            case NcType.NC_CHAR:
+            case NCType.NC_BYTE:
+                return GetAttributeValue<sbyte>(ncid, varid, name, length, NetCDFNative.nc_get_att_schar);
+            case NCType.NC_UBYTE:
+                return GetAttributeValue<byte>(ncid, varid, name, length, NetCDFNative.nc_get_att_uchar);
+            case NCType.NC_CHAR:
                 return ReadCharAttributeValue(ncid, varid, name, length);
-            case NcType.NC_STRING:
-                return GetAttributeValue<string>(ncid, varid, name, length, NetCDF.nc_get_att_string);
+            case NCType.NC_STRING:
+                return GetAttributeValue<string>(ncid, varid, name, length, nc_get_att_string);
             default:
                 throw new InvalidOperationException($"Unknown attribute type: {type}");
         }
+    }
+
+    public static int nc_get_att_text(int ncid, int varid, string name, out string value, int maxLength)
+    {
+        // In case netcdf adds terminating zero.
+        byte[] buffer = new byte[maxLength + 2];
+
+        int res = NetCDFNative.nc_get_att_text(ncid, varid, name, buffer, maxLength);
+        // TODO: error checking
+        char[] chars = new char[utfDecoder.GetCharCount(buffer, 0, maxLength)];
+        utfDecoder.GetChars(buffer, 0, maxLength, chars, 0);
+        value = new string(chars);
+        return res;
     }
 
     private static string ReadCharAttributeValue(int ncid, int varid, string name, int length)
     {
         Log.Debug("Reading value of char attribute {0}", name);
 
-        int res = NetCDF.nc_get_att_text(ncid, varid, name, out string value, length);
+        int res = nc_get_att_text(ncid, varid, name, out string value, length);
         CheckResult(res, "Failed to read char attribute: {0}", name);
 
         Log.Debug("Successfully read value of char attribute {0}", name);
@@ -837,25 +563,25 @@ internal static class NetCDFManaged
         string name = GetAttributeName(ncid, varid, number);
 
         Log.Debug("Calling nc_inq_att()");
-        int res = NetCDF.nc_inq_att(ncid, varid, name, out NcType nctype, out nint plength);
+        int res = NetCDFNative.nc_inq_att(ncid, varid, name, out NCType NCType, out nint plength);
         CheckResult(res, "nc_inq_att()");
 
         int length = (int)plength;
-        Type type = nctype.ToType();
+        Type type = NCType.ToType();
         Log.Debug("Attribute {0} has type {1} and length {2}", name, type.Name, length);
 
-        object value = GetAttributeValue(ncid, varid, name, nctype, length);
+        object value = GetAttributeValue(ncid, varid, name, NCType, length);
 
         return new Attribute(name, value, type);
     }
 
-    private static void SetAttributeValue<T>(int ncid, int varid, string name, object value, Func<int, int, string, T[], int> nativeFunc)
+    private static void SetAttributeValue<T>(int ncid, int varid, string name, NCType type, object value, Func<int, int, string, NCType, nint, T[], int> nativeFunc)
     {
         Log.Debug("Calling nc_put_att_{0}()", typeof(T).Name);
 
         T[] array;
         if (typeof(T).IsAssignableFrom(value.GetType()))
-            array = new T[1] { (T)value };
+            array = [(T)value];
         else if (value.GetType().IsArray)
             array = (T[])value;
         else if (value is IEnumerable<T>)
@@ -863,7 +589,7 @@ internal static class NetCDFManaged
         else
             throw new InvalidOperationException($"Attempted to set attribute {name} as {typeof(T).Name} attribute, but value is of type {value.GetType().Name}");
 
-        int res = nativeFunc(ncid, varid, name, array);
+        int res = nativeFunc(ncid, varid, name, type, array.Length, array);
         CheckResult(res, "Failed to set attribute {0}", name);
 
         Log.Debug("Successfully set attribute {0}", name);
@@ -871,10 +597,10 @@ internal static class NetCDFManaged
 
     private static void SetChunking(int ncid, int varid, ChunkMode mode, int[]? chunkSizes)
     {
-        nint[]? ptrs = chunkSizes?.Select(c => (nint)c).ToArray();
+        nint[] ptrs = chunkSizes?.Select(c => (nint)c).ToArray() ?? Array.Empty<nint>();
         Log.Debug("Calling nc_def_var_chunking() for variable {0}", varid);
 
-        int res = NetCDF.nc_def_var_chunking(ncid, varid, (int)mode, ptrs);
+        int res = NetCDFNative.nc_def_var_chunking(ncid, varid, (int)mode, ptrs);
         CheckResult(res, "Failed to set chunk sizes for variable {0}", varid);
 
         Log.Debug("Successfully set chunk sizes for variable {0}", varid);
@@ -895,53 +621,78 @@ internal static class NetCDFManaged
         SetChunking(ncid, varid, ChunkMode.Compact, null);
     }
 
-    private static int SetCharAttributeValue(int ncid, int varid, string name, char[] value)
+    private static int SetCharAttributeValue(int ncid, int varid, string name, NCType type, nint x, char[] value)
     {
-        return NetCDF.nc_put_att_text(ncid, varid, name, new string(value));
+        return NetCDFNative.nc_put_att_text(ncid, varid, name, value.Length, new string(value));
+    }
+
+    // TODO: replace with custom marshaler
+    private static int SetStringAttributeValue(int ncid, int varid, string name, NCType type, nint x, string[] value)
+    {
+        return nc_put_att_string(ncid, varid, name, value);
+    }
+
+    // TODO: replace with custom marshaler
+    unsafe public static int nc_put_att_string(int ncid, int varid, string name, string[] tp)
+    {
+        IntPtr[] bb = new IntPtr[tp.Length];
+        (byte[] buffer, uint[] offsets) = WriteStrings(tp);
+        fixed (byte* buf = buffer)
+        {
+            for (int i = 0; i < tp.Length; i++)
+            {
+                if (uint.MaxValue == offsets[i])
+                    bb[i] = IntPtr.Zero;
+                else
+                    bb[i] = new IntPtr(buf + offsets[i]);
+            }
+            return NetCDFNative.nc_put_att_string(ncid, varid, name, new IntPtr(bb.Length), bb);
+        }
     }
 
     public static void SetAttribute(int ncid, int varid, Attribute attribute)
     {
-        switch (attribute.DataType.ToNcType())
+        NCType nctype = attribute.DataType.ToNCType();
+        switch (attribute.DataType.ToNCType())
         {
-            case NcType.NC_SHORT:
-                SetAttributeValue<short>(ncid, varid, attribute.Name, attribute.Value, NetCDF.nc_put_att_short);
+            case NCType.NC_SHORT:
+                SetAttributeValue<short>(ncid, varid, attribute.Name, nctype, attribute.Value, NetCDFNative.nc_put_att_short);
                 break;
-            case NcType.NC_INT:
-                SetAttributeValue<int>(ncid, varid, attribute.Name, attribute.Value, NetCDF.nc_put_att_int);
+            case NCType.NC_INT:
+                SetAttributeValue<int>(ncid, varid, attribute.Name, nctype, attribute.Value, NetCDFNative.nc_put_att_int);
                 break;
-            case NcType.NC_INT64:
-                SetAttributeValue<long>(ncid, varid, attribute.Name, attribute.Value, NetCDF.nc_put_att_longlong);
-                break;
-
-            case NcType.NC_USHORT:
-                SetAttributeValue<ushort>(ncid, varid, attribute.Name, attribute.Value, NetCDF.nc_put_att_ushort);
-                break;
-            case NcType.NC_UINT:
-                SetAttributeValue<uint>(ncid, varid, attribute.Name, attribute.Value, NetCDF.nc_put_att_uint);
-                break;
-            case NcType.NC_UINT64:
-                SetAttributeValue<ulong>(ncid, varid, attribute.Name, attribute.Value, NetCDF.nc_put_att_ulonglong);
+            case NCType.NC_INT64:
+                SetAttributeValue<long>(ncid, varid, attribute.Name, nctype, attribute.Value, NetCDFNative.nc_put_att_longlong);
                 break;
 
-            case NcType.NC_FLOAT:
-                SetAttributeValue<float>(ncid, varid, attribute.Name, attribute.Value, NetCDF.nc_put_att_float);
+            case NCType.NC_USHORT:
+                SetAttributeValue<ushort>(ncid, varid, attribute.Name, nctype, attribute.Value, NetCDFNative.nc_put_att_ushort);
                 break;
-            case NcType.NC_DOUBLE:
-                SetAttributeValue<double>(ncid, varid, attribute.Name, attribute.Value, NetCDF.nc_put_att_double);
+            case NCType.NC_UINT:
+                SetAttributeValue<uint>(ncid, varid, attribute.Name, nctype, attribute.Value, NetCDFNative.nc_put_att_uint);
+                break;
+            case NCType.NC_UINT64:
+                SetAttributeValue<ulong>(ncid, varid, attribute.Name, nctype, attribute.Value, NetCDFNative.nc_put_att_ulonglong);
                 break;
 
-            case NcType.NC_BYTE:
-                SetAttributeValue<sbyte>(ncid, varid, attribute.Name, attribute.Value, NetCDF.nc_put_att_schar);
+            case NCType.NC_FLOAT:
+                SetAttributeValue<float>(ncid, varid, attribute.Name, nctype, attribute.Value, NetCDFNative.nc_put_att_float);
                 break;
-            case NcType.NC_UBYTE:
-                SetAttributeValue<byte>(ncid, varid, attribute.Name, attribute.Value, NetCDF.nc_put_att_ubyte);
+            case NCType.NC_DOUBLE:
+                SetAttributeValue<double>(ncid, varid, attribute.Name, nctype, attribute.Value, NetCDFNative.nc_put_att_double);
                 break;
-            case NcType.NC_CHAR:
-                SetAttributeValue<char>(ncid, varid, attribute.Name, attribute.Value, SetCharAttributeValue);
+
+            case NCType.NC_BYTE:
+                SetAttributeValue<sbyte>(ncid, varid, attribute.Name, nctype, attribute.Value, NetCDFNative.nc_put_att_schar);
                 break;
-            case NcType.NC_STRING:
-                SetAttributeValue<string>(ncid, varid, attribute.Name, attribute.Value, NetCDF.nc_put_att_string);
+            case NCType.NC_UBYTE:
+                SetAttributeValue<byte>(ncid, varid, attribute.Name, nctype, attribute.Value, NetCDFNative.nc_put_att_ubyte);
+                break;
+            case NCType.NC_CHAR:
+                SetAttributeValue<char>(ncid, varid, attribute.Name, nctype, attribute.Value, SetCharAttributeValue);
+                break;
+            case NCType.NC_STRING:
+                SetAttributeValue<string>(ncid, varid, attribute.Name, nctype, attribute.Value, SetStringAttributeValue);
                 break;
             default:
                 throw new InvalidOperationException($"Unknown attribute type: {attribute.DataType.Name}");
@@ -965,12 +716,12 @@ internal static class NetCDFManaged
 
     public static int CreateVariable(int ncid, string name, Type type, IEnumerable<string> dimensions)
     {
-        NcType nctype = type.ToNcType();
+        NCType nctype = type.ToNCType();
         int[] dimids = dimensions.Select(d => GetDimensionID(ncid, d)).ToArray();
 
         Log.Debug("nc_def_var(): Creating variable {0} with type {1} and dimensions {2}", name, type.Name, string.Join(", ", dimensions));
 
-        int res = NetCDF.nc_def_var(ncid, name, nctype, dimids, out int varid);
+        int res = NetCDFNative.nc_def_var(ncid, name, nctype, dimids.Length, dimids, out int varid);
         CheckResult(res, "Failed to create variable {0} with type {1} and dimensions {2}", name, type.Name, string.Join(", ", dimensions));
 
         Log.Debug("Successfully created variable {0} with type {1} and dimensions {2}", name, type.Name, string.Join(", ", dimensions));
@@ -992,16 +743,10 @@ internal static class NetCDFManaged
 
         Log.Debug("Enabling zlib compression for variable {0}: shuffle = {1}, level = {2}", name ?? varid.ToString(), zlib.Shuffle, zlib.DeflateLevel);
 
-        int res = NetCDF.nc_def_var_deflate(ncid, varid, shuf, defl, zlib.DeflateLevel);
+        int res = NetCDFNative.nc_def_var_deflate(ncid, varid, shuf, defl, zlib.DeflateLevel);
         CheckResult(res, "Failed to enable zlib compression for variable {0}", name ?? varid.ToString());
 
         Log.Debug("Successfully enabled zlib compression for variable {0}", name ?? varid.ToString());
-    }
-
-    public static string StrError(int errorCode)
-    {
-        IntPtr ptr = NetCDFNative.nc_strerror(errorCode);
-        return ReadString(ptr)!;
     }
 
     /// <summary>
@@ -1028,12 +773,103 @@ internal static class NetCDFManaged
         return new string(chars);
     }
 
-    private static void CheckResult(int result, string format, params object[] args)
+    public static int nc_get_vara_string(int ncid, int varid, IntPtr[] start, IntPtr[] count, string[] data)
+    {
+        IntPtr[] parr = new IntPtr[data.Length];
+
+        int res = NetCDFNative.nc_get_vara_string(ncid, varid, start, count, parr);
+        if (res != 0)
+            return res;
+
+        for (int i = 0; i < data.Length; i++)
+            data[i] = ReadString(parr[i]) ?? string.Empty;
+
+        return NetCDFNative.nc_free_string(new IntPtr(data.Length), parr);
+    }
+
+    /// <summary>
+    /// Writes strings to a buffer as zero-terminated UTF8-encoded strings.
+    /// </summary>
+    /// <param name="data">An array of strings to write to a buffer.</param>
+    /// <returns>A pair of a buffer with zero-terminated UTF8-encoded strings and an array of offsets to the buffer.
+    /// An offset of uint.MaxValue represents null in the data.
+    /// </returns>
+    unsafe private static (byte[], uint[]) WriteStrings(string[] data)
+    {
+        // Total length of the buffer.
+        uint buflen = 0;
+
+        // Length of each buffer.
+        int[] bytecounts = new int[data.Length];
+
+        // Compute buffer offsets.
+        for (int i = 0; i < data.Length; i++)
+        {
+            fixed (char* p = data[i])
+                bytecounts[i] = utfEncoder.GetByteCount(p, data[i].Length, true);
+
+            // Guard against overflow.
+            if (bytecounts[i] > uint.MaxValue - buflen - 1)
+                throw new InternalBufferOverflowException("string buffer cannot exceed 4Gbyte in a single NetCDF operation");
+
+            // Extra byte for the null terminator.
+            buflen += (uint)bytecounts[i] + 1;
+        }
+
+        // Buffer containing the utf8-encoded strings separated by null terminators.
+        byte[] buf = new byte[buflen];
+
+        // The offset of each of the strings within the buffer.
+        uint[] offsets = new uint[data.Length];
+
+        // Allocate the buffer and write bytes
+        fixed (byte* pbuf = buf)
+        {
+            int charsUsed;
+            int bytesUsed;
+            bool isCompleted;
+            uint offset = 0;
+            for (int i = 0; i < data.Length; i++)
+            {
+                offsets[i] = offset;
+                int bc = bytecounts[i];
+                fixed (char* p = data[i])
+                    utfEncoder.Convert(p, data[i].Length, pbuf + offset, bc, true, out charsUsed, out bytesUsed, out isCompleted);
+                System.Diagnostics.Debug.Assert(charsUsed == data[i].Length && bytesUsed == bc && isCompleted);
+                offset += (uint)bc;
+                *(pbuf + offset) = (byte)0;
+                offset += 1;
+            }
+        }
+        return (buf, offsets);
+    }
+
+    // public static unsafe int nc_put_vara_string(int ncid, int varid, IntPtr[] start, IntPtr[] count, string[] dp)
+    // {
+    //     int r;
+    //     var len = dp.Length;
+    //     IntPtr[] bb = new IntPtr[len];
+    //     (byte[] buffer, uint[] offsets) = WriteStrings(dp);
+    //     fixed (byte* buf = buffer)
+    //     {
+    //         for (int i = 0; i < len; i++)
+    //         {
+    //             if (offsets[i] == uint.MaxValue)
+    //                 bb[i] = IntPtr.Zero;
+    //             else
+    //                 bb[i] = new IntPtr(buf + offsets[i]);
+    //         }
+    //         r = NetCDFNative.nc_put_vara_string(ncid, varid, start, count, bb);
+    //     }
+    //     return r;
+    // }
+
+    public static void CheckResult(int result, string format, params object[] args)
     {
         if (result != 0)
         {
             string context = string.Format(format, args);
-            string error = StrError(result);
+            string error = NetCDFNative.nc_strerror(result);
             throw new Exception($"{context}: {error}");
         }
     }

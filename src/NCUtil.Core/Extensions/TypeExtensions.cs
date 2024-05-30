@@ -48,5 +48,9 @@ public static class TypeExtensions
             return $"{type.GetElementType()!.ToFriendlyName()}[]";
         return type.Name;
     }
-    
+
+    public static string ToReadableString(this TimeSpan span)
+    {
+        return $"{(int)span.TotalHours:d2}:{span.Minutes:d2}:{span.Seconds:d2}";
+    }
 }
