@@ -5,6 +5,7 @@ using NCUtil.Core.Models;
 using System.Reflection;
 using Attribute = NCUtil.Core.Models.Attribute;
 using Range = NCUtil.Core.Models.Range;
+using NCUtil.Core.IO;
 
 namespace NCUtil.Core;
 
@@ -64,7 +65,6 @@ public class MergeTime
         if (!File.Exists(outFile))
             InitialiseOutputFile(outFile);
 
-        // TODO: copy data.
         double start = 0.0;
         long totalSize = options.InputFiles.Select(i => new FileInfo(i).Length).Sum();
         int offset = 0;

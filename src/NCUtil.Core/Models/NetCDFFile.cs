@@ -1,4 +1,6 @@
+using System.Buffers;
 using System.Security.Cryptography;
+using System.Text;
 using NCUtil.Core.Extensions;
 using NCUtil.Core.Interop;
 using NCUtil.Core.Logging;

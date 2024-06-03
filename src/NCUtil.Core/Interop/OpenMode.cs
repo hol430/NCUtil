@@ -3,7 +3,7 @@ namespace NCUtil.Core.Interop;
 /// <summary>
 /// The open mode flags.
 /// </summary>
-public enum NCOpenMode : int
+public enum OpenMode : int
 {
     /// <summary>
     /// Set read-only access for nc_open().

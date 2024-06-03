@@ -1,4 +1,6 @@
+using System.Buffers;
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace NCUtil.Core.Interop.Marshalling;
 

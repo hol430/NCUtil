@@ -12,7 +12,7 @@ namespace NCUtil.Core.Interop;
 /// NC_DISKLESS (store data in memory), and NC_PERSIST (force the NC_DISKLESS data from memory to a file),
 /// NC_MMAP (use MMAP for NC_DISKLESS instead of NC_INMEMORY – deprecated).
 /// </summary>
-public enum NCCreateMode : int
+public enum CreateMode : int
 {
     /// <summary>
     /// Overwrite existing file. Mode flag for nc_create().

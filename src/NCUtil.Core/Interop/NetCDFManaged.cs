@@ -46,7 +46,7 @@ internal static class NetCDFManaged
     {
         Log.Debug("Creating NetCDF file: '{0}'...", file);
 
-        int res = NetCDFNative.nc_create(file, NCCreateMode.NC_NETCDF4 | NCCreateMode.NC_CLOBBER, out int id);
+        int res = NetCDFNative.nc_create(file, CreateMode.NC_NETCDF4 | CreateMode.NC_CLOBBER, out int id);
         CheckResult(res, "Failed to create file {0}", file);
 
         Log.Debug("Successfully created NetCDF file: '{0}'", file);

@@ -32,7 +32,7 @@
                 "${workspaceRoot}/data/in/vpd_AUS-11_ERA5_historical_hres_BOM_BARRA-R2_v1_1hr_197902-197902.nc",
             ],
             "cwd": "${workspaceFolder}/src/NCUtil.Cli",
-            "console": "internalConsole",
+            "console": "integratedTerminal",
             "stopAtEntry": false
         },
         {

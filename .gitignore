@@ -1,3 +1,6 @@
 bin
 obj
 data
+*.nettrace
+*.chromium.json
+*.speedscope.json
