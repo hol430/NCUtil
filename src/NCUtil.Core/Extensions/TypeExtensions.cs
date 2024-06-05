@@ -53,4 +53,9 @@ public static class TypeExtensions
     {
         return $"{(int)span.TotalHours:d2}:{span.Minutes:d2}:{span.Seconds:d2}";
     }
+
+    public static string ToEnumString(this Enum e)
+    {
+        return Enum.GetName(e.GetType(), e) ?? e.ToString();
+    }
 }

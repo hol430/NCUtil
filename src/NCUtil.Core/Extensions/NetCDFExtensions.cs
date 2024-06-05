@@ -124,10 +124,10 @@ public static class NetCDFExtensions
 
     public static void CopyMetadataTo(this NetCDFFile from, NetCDFFile to)
     {
-        foreach (var attribute in from.GetAttributes())
+        foreach (Attribute attribute in from.Attributes)
         {
             Log.Diagnostic("Setting attribute {0} in output file", attribute.Name);
-            to.SetGlobalAttribute(attribute);
+            to.CreateAttribute(attribute.Name, attribute.Value, attribute.DataType);
         }
     }
 

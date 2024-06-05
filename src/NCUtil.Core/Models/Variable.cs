@@ -11,26 +11,86 @@ public class Variable
     private readonly int ncid;
     private readonly int varid;
     private readonly NCType nctype;
+    private readonly List<Attribute> attributes;
     public string Name { get; private init; }
     public IReadOnlyList<string> Dimensions { get; private init; }
     public Type DataType { get; private init; }
-    public IReadOnlyList<Attribute> Attributes { get; private init; }
-    public ZLibOptions Zlib { get; private init; }
-    public IReadOnlyList<int> ChunkSizes { get; private init; }
-    public ChunkMode Chunking { get; private init; }
+    public IReadOnlyList<Attribute> Attributes => attributes;
+    public ICompressionAlgorithm? Compression { get; private init; }
+    public IReadOnlyList<int>? ChunkSizes { get; private init; }
+    public PackType Chunking { get; private init; }
 
-    public Variable(int ncid, int varid, string name, IEnumerable<string> dimensions, NCType type, IEnumerable<Attribute> attributes, ZLibOptions zlib, ChunkMode chunking, IEnumerable<int> chunkSizes)
+    /// <summary>
+    /// Create a managed variable object for a variable which already exists.
+    /// </summary>
+    /// <param name="ncid">ID of the NetCDF file.</param>
+    /// <param name="varid">ID of the variable.</param>
+    internal Variable(int ncid, int varid)
     {
         this.ncid = ncid;
         this.varid = varid;
+
+        Log.Debug("Calling nc_inq_varname()");
+
+        int ndims = GetNumDimensions();
+        int[] dimids = new int[ndims];
+
+        int res = NetCDFNative.nc_inq_var(ncid, varid, out string? name, out nctype, out int ndim2, dimids, out int natt);
+        CheckResult(res, "nc_inq_var(), varid = {0}", varid);
+
+        if (ndims != ndim2)
+            throw new Exception($"Number of dimensions for variable {name} has changed from {ndims} to {ndim2}");
+
+        Name = name!;
+        Dimensions = dimids.Select(d => Dimension.GetName(ncid, d)).ToList();
+        DataType = nctype.ToType();
+
+        attributes = new List<Attribute>();
+        for (int i = 0; i < natt; i++)
+            attributes.Add(new Attribute(ncid, varid, i));
+
+        Compression = GetCompressionOptions();
+        GetChunkSizes(out PackType packing, out int[] sizes);
+        Chunking = packing;
+        ChunkSizes = sizes;
+
+        Log.Debug("Call to nc_inq_var() was successful");
+    }
+
+    /// <summary>
+    /// Create a new variable in a NetCDF file.
+    /// </summary>
+    /// <param name="ncid">ID of the NetCDF file.</param>
+    /// <param name="name">Name of the variable to be created.</param>
+    /// <param name="dimensions">Names of the dimensions of the variable to be created (in desired order).</param>
+    /// <param name="type">Type of the variable to be created.</param>
+    /// <param name="packing">Packing mode of the variable to be created.</param>
+    /// <param name="chunkSizes">(Optional) chunk sizes of the variable to be created. Only required if the variable is to be chunked (ie packing == PackType.Chunked).</param>
+    /// <param name="compression">(Optional) compression algorithm to be used. Null means no compression.</param>
+    public Variable(int ncid, string name, IEnumerable<string> dimensions, NCType type, PackType packing, IEnumerable<int>? chunkSizes = null, ICompressionAlgorithm? compression = null)
+    {
+        this.ncid = ncid;
         Name = name;
         Dimensions = dimensions.ToList();
         nctype = type;
         DataType = type.ToType();
-        Attributes = attributes.ToList();
-        Zlib = zlib;
-        ChunkSizes = chunkSizes.ToList();
-        Chunking = chunking;
+        Compression = compression;
+        ChunkSizes = chunkSizes?.ToList();
+        Chunking = packing;
+
+        // Create the variable.
+        varid = Create();
+
+        // Define the packing (and chunking, if enabled).
+        SetChunking(packing, chunkSizes);
+
+        // Compression.
+        if (compression is ZLibCompression zlib)
+            EnableZLibCompression(zlib);
+        else if (compression != null)
+            throw new NotImplementedException($"TBI: unsupported compression type: {compression.GetType().Name}");
+
+        attributes = new List<Attribute>();
     }
 
     /// <summary>
@@ -108,7 +168,7 @@ public class Variable
                 ReadVara(hyperslab, (byte[])data, NetCDFNative.nc_get_vara_text);
                 break;
             case NCType.NC_STRING:
-                ReadVara(hyperslab, (string[])data, NetCDFManaged.nc_get_vara_string);
+                ReadVara(hyperslab, (string[])data, NetCDFNative.nc_get_vara_string);
                 break;
             default:
                 throw new NotImplementedException($"Unable to read from variable {Name}: unsupported type: {nctype}");
@@ -212,15 +272,164 @@ public class Variable
         }
     }
 
+    /// <summary>
+    /// Get the total length of this variable along all dimensions.
+    /// </summary>
     public long GetLength()
     {
-        int[] dimids = GetVariableDimensionIDs(ncid, varid);
-        return dimids.Product(d => GetDimensionLength(ncid, d));
+        int[] dimids = GetDimensionIDs();
+        return dimids.Product(d => Dimension.GetLength(ncid, d));
+    }
+
+    public void CreateAttribute(string name, Type type, object value)
+    {
+        Attribute attribute = new Attribute(ncid, varid, name, value, type);
+        attributes.Add(attribute);
     }
 
     public override string ToString()
     {
         string dims = string.Join(", ", Dimensions);
         return $"{DataType.ToFriendlyName()} {Name} ({dims})";
+    }
+
+    /// <summary>
+    /// Create a variable and return the created variable's ID.
+    /// </summary>
+    private int Create()
+    {
+        NCType nctype = DataType.ToNCType();
+        int[] dimids = Dimensions.Select(d => Dimension.GetID(ncid, d)).ToArray();
+
+        Log.Debug("nc_def_var(): Creating variable {0} with type {1} and dimensions {2}", Name, DataType.ToFriendlyName(), string.Join(", ", Dimensions));
+
+        int res = NetCDFNative.nc_def_var(ncid, Name, nctype, dimids.Length, dimids, out int varid);
+        CheckResult(res, "Failed to create variable {0} with type {1} and dimensions {2}", Name, DataType.ToFriendlyName(), string.Join(", ", Dimensions));
+
+        Log.Debug("Successfully created variable {0} with type {1} and dimensions {2}", Name, DataType.ToFriendlyName(), string.Join(", ", Dimensions));
+
+        return varid;
+    }
+
+    /// <summary>
+    /// Set the packing type and chunk sizes for this variable. This must be
+    /// called after the variable is created but before the file is closed.
+    /// </summary>
+    /// <param name="mode">The packing mode.</param>
+    /// </summary>
+    private void SetChunking(PackType mode, IEnumerable<int>? chunkSizes)
+    {
+        if (chunkSizes == null && mode == PackType.Chunked)
+            throw new InvalidOperationException($"Unable to set packing to chunked for variable {Name}: no chunk sizes are defined");
+
+        if (chunkSizes != null && mode != PackType.Chunked)
+            // Technically, this is not actually a fatal error, but it almost
+            // certainly indicates a programming error.
+            throw new InvalidOperationException($"Unable to set packing to {mode.ToEnumString()} for variable {Name}: chunk sizes were defined but packing is not set to chunked");
+
+        nint[] ptrs = chunkSizes?.Select(c => (nint)c).ToArray() ?? Array.Empty<nint>();
+        Log.Debug("Calling nc_def_var_chunking() for variable {0}", varid);
+
+        int res = NetCDFNative.nc_def_var_chunking(ncid, varid, (int)mode, ptrs);
+        CheckResult(res, "Failed to set chunk sizes for variable {0}", varid);
+
+        Log.Debug("Successfully set chunk sizes for variable {0}", varid);
+    }
+
+    /// <summary>
+    /// Enable zlib compression for the specified variable. This should only be
+    /// called after creating the variable but before closing the file.
+    /// </summary>
+    /// <param name="options">Compression options.</param>
+    private void EnableZLibCompression(ZLibCompression options)
+    {
+        int shuf = options.Shuffle ? 1 : 0;
+        int defl = options.DeflateLevel > 0 ? 1 : 0;
+
+        if (options.DeflateLevel < NCConst.NC_MIN_DEFLATE_LEVEL || options.DeflateLevel > NCConst.NC_MAX_DEFLATE_LEVEL)
+            throw new InvalidOperationException($"Invalid deflation level: {options.DeflateLevel}. This must be in range [{NCConst.NC_MIN_DEFLATE_LEVEL}, {NCConst.NC_MAX_DEFLATE_LEVEL}]");
+
+        if (options.DeflateLevel == 0)
+            Log.Warning("Enabling zlib compression with deflation level 0. Are you sure you want to do this?");
+
+        Log.Debug("Enabling zlib compression for variable {0}: shuffle = {1}, level = {2}", Name, options.Shuffle, options.DeflateLevel);
+
+        int res = NetCDFNative.nc_def_var_deflate(ncid, varid, shuf, defl, options.DeflateLevel);
+        CheckResult(res, "Failed to enable zlib compression for variable {0}", Name);
+
+        Log.Debug("Successfully enabled zlib compression for variable {0}", Name);
+    }
+
+    /// <summary>
+    /// Get the zlib configuration for the specified variable. If zlib
+    /// compression is disabled, this will return a deflate level of 0.
+    /// </summary>
+    private ICompressionAlgorithm? GetCompressionOptions()
+    {
+        Log.Debug("Checking compression settings for variable {0}", varid);
+
+        int res = NetCDFNative.nc_inq_var_deflate(ncid, varid, out int shuf, out int def, out int deflateLevel);
+        CheckResult(res, "Failed to check zlib compression for variable {0}", varid);
+
+        Log.Debug("Successfully read compression settings for variable {0}", varid);
+
+        // def will be 1 if the deflate filter is turned on. Otherwise it will
+        // be zero.
+        if (def == 0)
+            return null;
+
+        return new ZLibCompression(shuf == 1, deflateLevel);
+    }
+
+    /// <summary>
+    /// Get the packing mode and chunk sizes (if any) of this variable.
+    /// </summary>
+    private unsafe void GetChunkSizes(out PackType mode, out int[] chunks)
+    {
+        Log.Debug("Checking chunk sizes for variable {0}", varid);
+
+        int ndim = GetNumDimensions();
+        nint* ptr = stackalloc nint[ndim];
+
+        int res = NetCDFNative.nc_inq_var_chunking(ncid, varid, out int storagep, ptr);
+        CheckResult(res, "Failed to read chunk sizes for variable {0}", varid);
+
+        chunks = new int[ndim];
+        for (int i = 0; i < ndim; i++)
+            chunks[i] = (int)ptr[i];
+
+        mode = (PackType)storagep;
+        Log.Debug("Variable {0} has chunk sizes: {1}", varid, string.Join(", ", chunks));
+    }
+
+    /// <summary>
+    /// Get the IDs of the dimensions of this variable.
+    /// </summary>
+    private int[] GetDimensionIDs()
+    {
+        int ndim = GetNumDimensions();
+        int[] dimids = new int[ndim];
+
+        Log.Debug("Calling nc_inq_vardimid() for variable {0}", varid);
+
+        int res = NetCDFNative.nc_inq_vardimid(ncid, varid, dimids);
+        CheckResult(res, "Failed to get dimension IDs for variable {0}", varid);
+
+        Log.Debug("Call to nc_inq_vardimid() was successful");
+        return dimids;
+    }
+
+    /// <summary>
+    /// Get the rank (number of dimensions) of this variable.
+    /// </summary>
+    private int GetNumDimensions()
+    {
+        Log.Debug("Calling nc_inq_varndims() for variable {0}", varid);
+
+        int res = NetCDFNative.nc_inq_varndims(ncid, varid, out int ndim);
+        CheckResult(res, "nc_inq_varndims()");
+
+        Log.Debug("nc_inq_varndims(): variable {0} has {1} dimensions", varid, ndim);
+        return ndim;
     }
 }

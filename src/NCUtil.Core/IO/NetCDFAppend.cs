@@ -54,7 +54,7 @@ public static class NetCDFAppend
             throw new NotImplementedException("TBI: units conversion");
 
         // The chunk sizes to be used for reading data.
-        int chunkSize = GetChunkSize(varIn.ChunkSizes[0], minChunkSize);
+        int chunkSize = GetChunkSize(varIn.ChunkSizes, 0, minChunkSize);
 
         // Check if we are appending or copying.
         bool hasOffset = dimension.Name == dimensionName;
@@ -114,7 +114,9 @@ public static class NetCDFAppend
         int[] dimensionSizes = dimensions.ToArray(d => d.Size);
 
         // The chunk sizes to be used for reading data.
-        int[] chunkSizes = varIn.ChunkSizes.ToArray(c => GetChunkSize(c, minChunkSize));
+        int[] chunkSizes = new int[varIn.Dimensions.Count];
+        for (int i = 0; i < chunkSizes.Length; i++)
+            chunkSizes[i] = GetChunkSize(varIn.ChunkSizes, i, minChunkSize);
 
         // Total number of iterations per dimension.
         int[] niter = chunkSizes.Zip(dimensionSizes, (c, s) => (int)Math.Ceiling(1.0 * s / c)).ToArray();
@@ -199,7 +201,9 @@ public static class NetCDFAppend
         int[] dimensionSizes = dimensions.ToArray(d => d.Size);
 
         // The chunk sizes to be used for reading data.
-        int[] chunkSizes = varIn.ChunkSizes.ToArray(c => GetChunkSize(c, minChunkSize));
+        int[] chunkSizes = new int[varIn.Dimensions.Count];
+        for (int i = 0; i < chunkSizes.Length; i++)
+            chunkSizes[i] = GetChunkSize(varIn.ChunkSizes, i, minChunkSize);
 
         // Total number of iterations per dimension.
         int[] niter = chunkSizes.Zip(dimensionSizes, (c, s) => (int)Math.Ceiling(1.0 * s / c)).ToArray();
@@ -281,8 +285,13 @@ public static class NetCDFAppend
         }
     }
 
-    private static int GetChunkSize(int chunkSize, int minChunkSize)
+    private static int GetChunkSize(IReadOnlyList<int>? sizes, int index, int minChunkSize)
     {
+        if (sizes == null)
+            return minChunkSize;
+
+        int chunkSize = sizes[index];
+
         // Don't allow zero or negative chunk sizes.
         chunkSize = Math.Max(1, chunkSize);
 

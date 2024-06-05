@@ -107,18 +107,44 @@ public class MergeTime
 
         using NetCDFFile ncIn = new NetCDFFile(options.InputFiles.First());
         Log.Diagnostic("Creating dimensions in output file");
-        foreach (Dimension dim in ncIn.GetDimensions())
+        foreach (Dimension dim in ncIn.Dimensions)
         {
             int size = dim.IsTime() ? ntime : dim.Size;
-            ncOut.AddDimension(dim.Name, size);
+            ncOut.CreateDimension(dim.Name, size);
         }
 
         // Create all variables in output file (but don't fill them with data).
         Log.Diagnostic("Creating variables in output file");
-        foreach (Variable variable in ncIn.GetVariables())
+        foreach (Variable variable in ncIn.Variables)
         {
             // Create variable.
-            ncOut.AddVariable(variable, chunkSizes, options.AllowCompact, options.CompressionLevel);
+
+            // Set compression.
+            // TODO: custom compression type.
+            // Compression level of -1 means same as input file.
+            // Compression level of 0 means no compression.
+            // This should be refactored. It could be done better.
+            ICompressionAlgorithm? compression = null;
+
+            if (options.CompressionLevel > 0)
+            {
+                compression = new ZLibCompression(true, options.CompressionLevel);
+                Log.Diagnostic("Variable {0}: Using user-defined compression: {1}",
+                    variable.Name,
+                    compression);
+            }
+            else if (options.CompressionLevel == -1 && variable.Compression != null)
+            {
+                Log.Diagnostic("Variable {0}: Enabling compression: {1} (same as input file)",
+                    variable.Name,
+                    variable.Compression);
+
+                compression = variable.Compression;
+            }
+
+            Variable varOut = ncOut.CreateVariable(variable.Name, variable.Dimensions, variable.DataType, chunkSizes, options.AllowCompact, compression);
+            foreach (Attribute attribute in variable.Attributes)
+                varOut.CreateAttribute(attribute.Name, attribute.DataType, attribute.Value);
         }
 
         // Copy file-level metadata.
@@ -126,9 +152,11 @@ public class MergeTime
 
         Dimension time = ncIn.GetTimeDimension();
 
+        // TODO: Custom dimension order.
+
         // Copy all non-time dimensions to the output file.
         Log.Diagnostic("Copying non-time coordinate variables to output file.");
-        foreach (Dimension dimension in ncIn.GetDimensions())
+        foreach (Dimension dimension in ncIn.Dimensions)
         {
             if (dimension.IsTime())
                 continue;
@@ -147,8 +175,7 @@ public class MergeTime
         using NetCDFFile ncIn = new NetCDFFile(inputFile);
         using NetCDFFile ncOut = new NetCDFFile(outputFile, NetCDFFileMode.Append);
 
-        IReadOnlyList<string> dimensions = ncIn.GetDimensions().Select(d => d.Name).ToList();
-        IReadOnlyList<Variable> variables = ncIn.GetVariables();
+        IReadOnlyList<string> dimensions = ncIn.Dimensions.Select(d => d.Name).ToList();
 
         Variable varTime = ncIn.GetTimeVariable();
         Dimension dimTime = ncIn.GetTimeDimension();
@@ -156,8 +183,8 @@ public class MergeTime
         ncIn.Append(ncOut, varTime.Name, dimTime.Name, options.MinChunkSize, offset, _ => {});
 
         double start = 0;
-        long totalWeight = variables.Where(v => !v.Dimensions.Contains(v.Name)).Sum(v => v.GetLength());
-        foreach (Variable variable in variables)
+        long totalWeight = ncIn.Variables.Where(v => !v.Dimensions.Contains(v.Name)).Sum(v => v.GetLength());
+        foreach (Variable variable in ncIn.Variables)
         {
             if (dimensions.Contains(variable.Name))
                 continue;
