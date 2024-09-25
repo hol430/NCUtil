@@ -1,6 +1,7 @@
 ﻿using CommandLine;
 using NCUtil.Core;
 using NCUtil.Core.Configuration;
+using NCUtil.Core.MPI;
 
 int exitCode = 0;
 

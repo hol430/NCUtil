@@ -115,7 +115,7 @@ public class Attribute
     /// <param name="nativeFunc">The native nc_put_att_X func.</param>
     private void SetAttributeValue<T>(Func<int, int, string, NCType, nint, T[], int> nativeFunc)
     {
-        Log.Debug("Calling nc_put_att_{0}()", typeof(T).Name);
+        Log.Debug("Calling nc_put_att_{0}()", typeof(T).ToFriendlyName());
 
         // Convert the value into an array.
         T[] array;
@@ -155,42 +155,34 @@ public class Attribute
         return NetCDFNative.nc_put_att_string(ncid, varid, name, value);
     }
 
+    /// <summary>
+    /// Read this attribute's value by invoking the appropriate native
+    /// nc_get_att_X function for this attribute's type.
+    /// </summary>
     private object ReadAttribute()
     {
-        switch (DataType.ToNCType())
+        return DataType.ToNCType() switch
         {
-            case NCType.NC_SHORT:
-                return ReadAttributeValue<short>(NetCDFNative.nc_get_att_short);
-            case NCType.NC_INT:
-                return ReadAttributeValue<int>(NetCDFNative.nc_get_att_int);
-            case NCType.NC_INT64:
-                return ReadAttributeValue<long>(NetCDFNative.nc_get_att_longlong);
-
-            case NCType.NC_USHORT:
-                return ReadAttributeValue<ushort>(NetCDFNative.nc_get_att_ushort);
-            case NCType.NC_UINT:
-                return ReadAttributeValue<uint>(NetCDFNative.nc_get_att_uint);
-            case NCType.NC_UINT64:
-                return ReadAttributeValue<ulong>(NetCDFNative.nc_get_att_ulonglong);
-
-            case NCType.NC_FLOAT:
-                return ReadAttributeValue<float>(NetCDFNative.nc_get_att_float);
-            case NCType.NC_DOUBLE:
-                return ReadAttributeValue<double>(NetCDFNative.nc_get_att_double);
-
-            case NCType.NC_BYTE:
-                return ReadAttributeValue<sbyte>(NetCDFNative.nc_get_att_schar);
-            case NCType.NC_UBYTE:
-                return ReadAttributeValue<byte>(NetCDFNative.nc_get_att_uchar);
-            case NCType.NC_CHAR:
-                return ReadCharAttributeValue(ncid, varid, Name, Length);
-            case NCType.NC_STRING:
-                return ReadAttributeValue<string>(NetCDFNative.nc_get_att_string);
-            default:
-                throw new InvalidOperationException($"Unknown attribute type: {DataType.ToNCType().ToEnumString()}");
-        }
+            NCType.NC_SHORT => ReadAttributeValue<short>(NetCDFNative.nc_get_att_short),
+            NCType.NC_INT => ReadAttributeValue<int>(NetCDFNative.nc_get_att_int),
+            NCType.NC_INT64 => ReadAttributeValue<long>(NetCDFNative.nc_get_att_longlong),
+            NCType.NC_USHORT => ReadAttributeValue<ushort>(NetCDFNative.nc_get_att_ushort),
+            NCType.NC_UINT => ReadAttributeValue<uint>(NetCDFNative.nc_get_att_uint),
+            NCType.NC_UINT64 => ReadAttributeValue<ulong>(NetCDFNative.nc_get_att_ulonglong),
+            NCType.NC_FLOAT => ReadAttributeValue<float>(NetCDFNative.nc_get_att_float),
+            NCType.NC_DOUBLE => ReadAttributeValue<double>(NetCDFNative.nc_get_att_double),
+            NCType.NC_BYTE => ReadAttributeValue<sbyte>(NetCDFNative.nc_get_att_schar),
+            NCType.NC_UBYTE => ReadAttributeValue<byte>(NetCDFNative.nc_get_att_uchar),
+            NCType.NC_CHAR => ReadCharAttributeValue(),
+            NCType.NC_STRING => ReadAttributeValue<string>(NetCDFNative.nc_get_att_string),
+            _ => throw new InvalidOperationException($"Unknown attribute type: {DataType.ToNCType().ToEnumString()}"),
+        };
     }
 
+    /// <summary>
+    /// Read this attribute's value by invoking the specified native
+    /// nc_get_att_X function.
+    /// </summary>
     private object ReadAttributeValue<T>(Func<int, int, string, T[], int> nativeFunc)
     {
         Log.Debug("Calling nc_get_att_{0}()...", typeof(T).ToFriendlyName());
@@ -205,14 +197,18 @@ public class Attribute
         return data;
     }
 
-    private static string ReadCharAttributeValue(int ncid, int varid, string name, int length)
+    /// <summary>
+    /// A helper function for reading character attributes. This should only be
+    /// called if this attribute's type is NC_CHAR.
+    /// </summary>
+    private string ReadCharAttributeValue()
     {
-        Log.Debug("Reading value of char attribute {0}", name);
+        Log.Debug("Reading value of char attribute {0}", Name);
 
-        int res = NetCDFNative.nc_get_att_text(ncid, varid, name, out string? value, length);
-        CheckResult(res, "Failed to read char attribute: {0}", name);
+        int res = NetCDFNative.nc_get_att_text(ncid, varid, Name, out string? value, Length);
+        CheckResult(res, "Failed to read char attribute: {0}", Name);
 
-        Log.Debug("Successfully read value of char attribute {0}", name!);
+        Log.Debug("Successfully read value of char attribute {0}", Name!);
         return value!;
     }
 }

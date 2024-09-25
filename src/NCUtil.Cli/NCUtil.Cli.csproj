@@ -12,4 +12,9 @@
     <ProjectReference Include="../NCUtil.Core/NCUtil.Core.csproj" />
   </ItemGroup>
 
+  <Target Name="CopyNativeLib" AfterTargets="Build">
+    <Message Text="Copying native lib to target directory..." Importance="Normal" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)/../mpibridge/mpibridge.so" DestinationFolder="$(TargetDir)/" />
+  </Target>
+
 </Project>

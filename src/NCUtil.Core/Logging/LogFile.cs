@@ -1,4 +1,5 @@
 using NCUtil.Core.Extensions;
+using NCUtil.Core.MPI;
 
 namespace NCUtil.Core.Logging;
 
@@ -12,10 +13,17 @@ public class LogFile : ILogger
     private readonly char progressEol;
     private readonly TimeSpan progressInterval;
 
+    /// <summary>True to prefix log messages with MPI rank.</summary>
+    private readonly bool mpi;
+
+    /// <summary>MPI rank, or 0 if MPI not being used.</summary>
+    private readonly int rank;
+
     private DateTime progressStartTime = DateTime.Now;
     private DateTime lastProgressReport = DateTime.MinValue;
 
-    public LogFile(LogLevel verbosity, bool showProgress, int progressInterval)
+    public LogFile(LogLevel verbosity, bool showProgress, int progressInterval
+        , bool mpi)
     {
         this.verbosity = verbosity;
         this.showProgress = showProgress;
@@ -23,6 +31,8 @@ public class LogFile : ILogger
         error = Console.Error;
         progressEol = Console.IsOutputRedirected ? '\n' : '\r';
         this.progressInterval = TimeSpan.FromSeconds(progressInterval);
+        this.mpi = mpi;
+        rank = Mpi.MPI_Comm_rank(MpiBridge.MPI_COMM_WORLD);
     }
 
     public void Log(LogLevel level, string format, params object[] args)
@@ -31,6 +41,8 @@ public class LogFile : ILogger
         {
             string message = string.Format(format, args);
             TextWriter writer = level == LogLevel.Error ? error : output;
+            if (mpi)
+                writer.Write("[slave {0}] ", rank);
             writer.WriteLine(message);
         }
     }

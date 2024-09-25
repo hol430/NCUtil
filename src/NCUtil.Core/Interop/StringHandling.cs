@@ -45,7 +45,7 @@ internal static class StringHandling
     /// <returns>A pair of a buffer with zero-terminated UTF8-encoded strings and an array of offsets to the buffer.
     /// An offset of uint.MaxValue represents null in the data.
     /// </returns>
-    unsafe public static (byte[], uint[]) WriteStrings(string[] data)
+    unsafe public static (byte[], uint[]) WriteStrings(string[] data, byte sep = 0)
     {
         // Total length of the buffer.
         uint buflen = 0;
@@ -88,7 +88,7 @@ internal static class StringHandling
                     utfEncoder.Convert(p, data[i].Length, pbuf + offset, bc, true, out charsUsed, out bytesUsed, out isCompleted);
                 System.Diagnostics.Debug.Assert(charsUsed == data[i].Length && bytesUsed == bc && isCompleted);
                 offset += (uint)bc;
-                *(pbuf + offset) = (byte)0;
+                *(pbuf + offset) = sep;
                 offset += 1;
             }
         }

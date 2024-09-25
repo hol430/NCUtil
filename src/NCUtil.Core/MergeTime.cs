@@ -6,6 +6,8 @@ using System.Reflection;
 using Attribute = NCUtil.Core.Models.Attribute;
 using Range = NCUtil.Core.Models.Range;
 using NCUtil.Core.IO;
+using NCUtil.Core.MPI;
+using NCUtil.Core.Interop;
 
 namespace NCUtil.Core;
 
@@ -17,13 +19,44 @@ public class MergeTime
     public MergeTime(Options options)
     {
         this.options = options;
+
+        if (options.UseMpi)
+        {
+            if (Mpi.MPI_Initialized())
+                Log.Warning("MPI appears to already be initialised. This is probably a programming error!");
+            else
+                Mpi.MPI_Init();
+        }
+
         startTime = DateTime.Now;
-        Log.ConfigureLogging((LogLevel)options.Verbosity, options.ShowProgress, options.ProgressInterval);
+        Log.ConfigureLogging((LogLevel)options.Verbosity, options.ShowProgress, options.ProgressInterval, options.UseMpi);
+
+        if (options.UseMpi)
+        {
+            int size = Mpi.MPI_Comm_size(MpiBridge.MPI_COMM_WORLD);
+            Log.Diagnostic("Successfully initialised MPI environment. World size is {0}", size);
+        }
     }
 
     public void Run()
     {
-        Log.Information("Running mergetime");
+        try
+        {
+            RunInternal();
+        }
+        catch (Exception error)
+        {
+            Log.Error(error.ToString());
+            if (options.UseMpi)
+                Mpi.MPI_Abort(MpiBridge.MPI_COMM_WORLD, 1);
+        }
+    }
+
+    private void RunInternal()
+    {
+        DateTime startTime = DateTime.Now;
+
+        Log.Information("Mergetime started");
 
         // Basic sanity checking.
         // TODO: refactor out the need for a restart file.
@@ -48,30 +81,54 @@ public class MergeTime
         IEnumerable<string> mergedFiles = ReadRestartFile();
         Log.Diagnostic("{0} files have already been processed", mergedFiles.Count());
 
-        // Copy existing output file to working directory.
-        if (options.RestartFile != null && options.WorkingDirectory != null && !File.Exists(outFile) && File.Exists(options.OutputFile))
+        if (IsMaster())
         {
-            Log.Diagnostic("Copying existing output file into working directory");
-            File.Copy(options.OutputFile, outFile);
+            Log.Information("Performing one-time initialisation...");
+
+            // Copy existing output file to working directory.
+            if (options.RestartFile != null && options.WorkingDirectory != null && !File.Exists(outFile) && File.Exists(options.OutputFile))
+            {
+                Log.Diagnostic("Copying existing output file into working directory");
+                File.Copy(options.OutputFile, outFile);
+            }
+            else
+            {
+                Log.Diagnostic("No need to copy existing file.");
+            }
+
+            // If not restarting, delete an existing output file.
+            if (options.RestartFile == null && File.Exists(outFile))
+            {
+                Log.Diagnostic("Deleting existing output file: '{0}'", outFile);
+                File.Delete(outFile);
+            }
+            else
+                Log.Diagnostic("No need to delete output file. Either it doesn't exist or we are resuming a previous mergetime operation.");
         }
 
-        // If not restarting, delete an existing output file.
-        if (options.RestartFile == null && File.Exists(outFile))
-        {
-            Log.Diagnostic("Deleting existing output file: '{0}'", outFile);
-            File.Delete(outFile);
-        }
+        (int ntime, IDictionary<string, int> offsets) = CountTimesteps();
 
-        if (!File.Exists(outFile))
-            InitialiseOutputFile(outFile);
+        if (options.RestartFile == null || !File.Exists(outFile))
+            InitialiseOutputFile(outFile, ntime);
+        else
+            Log.Information("Output file will not be initialised because it already exists.");
+
+        if (options.UseMpi)
+        {
+            Log.Diagnostic("Waiting for master to initialise the output file...");
+            Mpi.MPI_Barrier(MpiBridge.MPI_COMM_WORLD);
+            Log.Diagnostic("Master node has successfully initialised the output file. Continuing...");
+        }
 
         double start = 0.0;
         long totalSize = options.InputFiles.Select(i => new FileInfo(i).Length).Sum();
-        int offset = 0;
-        foreach (string inputFile in options.InputFiles)
+        IEnumerable<string> inputFiles = GetInputFiles(mergedFiles);
+        using NetCDFFile ncOut = new NetCDFFile(outFile, NetCDFFileMode.Append, options.UseMpi);
+        Log.Diagnostic("Processing {0} files", inputFiles.Count());
+        foreach (string inputFile in inputFiles)
         {
             double step = (double)new FileInfo(inputFile).Length / totalSize;
-            offset += CopyData(inputFile, outFile, offset, p => Log.Progress(start + step * p));
+            CopyData(inputFile, ncOut, offsets[inputFile], p => Log.Progress(start + step * p));
             start += step;
         }
 
@@ -81,30 +138,50 @@ public class MergeTime
             Log.Information("Moving intermediate output file {0} to output location: {1}", outFile, options.OutputFile);
             File.Move(outFile, options.OutputFile, true);
         }
+
+        DateTime finishTime = DateTime.Now;
+        TimeSpan duration = finishTime - startTime;
+        Log.Information($"Mergetime completed in {duration.ToReadableString()}");
+    }
+
+    private (int ntime, IDictionary<string, int> offsets) CountTimesteps()
+    {
+        Log.Diagnostic("Opening input files to count total number of timesteps.");
+        IDictionary<string, int> offsets = new Dictionary<string, int>();
+        int ntime = 0;
+        foreach (string inputFile in options.InputFiles)
+        {
+            offsets[inputFile] = ntime;
+            ntime += GetNTime(inputFile);
+        }
+        Log.Diagnostic("Input files contain {0} timesteps", ntime);
+        return (ntime, offsets);
     }
 
     /// <summary>
     /// Count the number of timesteps in the specified netcdf file.
     /// </summary>
-    private static int GetNTime(string file)
+    private int GetNTime(string file)
     {
-        using NetCDFFile nc = new NetCDFFile(file, NetCDFFileMode.Read);
+        using NetCDFFile nc = new NetCDFFile(file, NetCDFFileMode.Read, options.UseMpi);
         return nc.GetNTime();
     }
 
-    private void InitialiseOutputFile(string outFile)
+    private void InitialiseOutputFile(string outFile, int ntime)
     {
+        if (options.UseMpi && !IsMaster())
+        {
+            Log.Diagnostic("This node is not the master and will therefore not initialise the output file.");
+            return;
+        }
+
+        Log.Information("Initialising output file");
+
         // Parse chunk sizes from user options. Doing this early so we can throw
         // early in case of parser error.
         ChunkSizes chunkSizes = new ChunkSizes(options.ChunkSizes);
 
         using NetCDFFile ncOut = new NetCDFFile(outFile, NetCDFFileMode.Write);
-        Log.Information("Initialising output file");
-
-        Log.Diagnostic("Opening input files to count total number of timesteps.");
-        int ntime = options.InputFiles.Sum(GetNTime);
-        Log.Diagnostic("Input files contain {0} timesteps", ntime);
-
         using NetCDFFile ncIn = new NetCDFFile(options.InputFiles.First());
         Log.Diagnostic("Creating dimensions in output file");
         foreach (Dimension dim in ncIn.Dimensions)
@@ -170,10 +247,11 @@ public class MergeTime
         Log.Information("Output file has been successfully initialised.");
     }
 
-    public int CopyData(string inputFile, string outputFile, int offset, Action<double> progressReporter)
+    public int CopyData(string inputFile, NetCDFFile ncOut, int offset, Action<double> progressReporter)
     {
+        // This is the only worker reading from this input file, so it can be
+        // opened in serial mode.
         using NetCDFFile ncIn = new NetCDFFile(inputFile);
-        using NetCDFFile ncOut = new NetCDFFile(outputFile, NetCDFFileMode.Append);
 
         IReadOnlyList<string> dimensions = ncIn.Dimensions.Select(d => d.Name).ToList();
 
@@ -195,6 +273,46 @@ public class MergeTime
         }
 
         return offset + dimTime.Size;
+    }
+
+    /// <summary>
+    /// Return true if MPI is disabled or if MPI is enabled and this is the
+    /// master node. In other words, check if this node should do things that
+    /// should only be done once (by the master node).
+    /// </summary>
+    private bool IsMaster()
+    {
+        if (!options.UseMpi)
+            return true;
+
+        // In MPI mode, only the master node should initialise the output file.
+        int rank = Mpi.MPI_Comm_rank(MpiBridge.MPI_COMM_WORLD);
+        return rank == 0;
+    }
+
+    private IEnumerable<string> GetInputFiles(IEnumerable<string> skip)
+    {
+        IEnumerable<string> inputFiles = options.InputFiles.Except(skip);
+
+        if (!options.UseMpi)
+            return inputFiles;
+
+        // Determine the world size (aka total number of workers).
+        int worldSize = Mpi.MPI_Comm_size(MpiBridge.MPI_COMM_WORLD);
+
+        // Split the input files into equally-sized chunks.
+        int nfile = inputFiles.Count();
+        List<string[]> chunks = inputFiles.Chunk(nfile / worldSize).ToList();
+
+        // Get the rank of this worker.
+        int rank = Mpi.MPI_Comm_rank(MpiBridge.MPI_COMM_WORLD);
+
+        // Return the chunk for this worker (if any).
+        if (chunks.Count > rank)
+            return chunks[rank];
+
+        // This can happen if the number of files exceeds the number of workers.
+        return Enumerable.Empty<string>();
     }
 
     private IEnumerable<string> ReadRestartFile()

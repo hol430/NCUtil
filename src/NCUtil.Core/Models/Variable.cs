@@ -293,6 +293,26 @@ public class Variable
         return $"{DataType.ToFriendlyName()} {Name} ({dims})";
     }
 
+    public void UseCollectiveAccess()
+    {
+        SetAccessType(ParallelAccess.NC_COLLECTIVE);
+    }
+
+    public void UseIndependentAccess()
+    {
+        SetAccessType(ParallelAccess.NC_INDEPENDENT);
+    }
+
+    private void SetAccessType(ParallelAccess access)
+    {
+        Log.Debug("nc_var_par_access(): Setting access type to {0} for variable {1}", access.ToEnumString(), Name);
+
+        int res = NetCDFNative.nc_var_par_access(ncid, varid, access);
+        CheckResult(res, "nc_var_par_access(): Failed to set parallel access type to {0}", access.ToEnumString());
+
+        Log.Debug("Successfully set access type to {0} for variable {1}", access.ToEnumString(), Name);
+    }
+
     /// <summary>
     /// Create a variable and return the created variable's ID.
     /// </summary>

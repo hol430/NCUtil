@@ -30,9 +30,9 @@ public class NetCDFFile : IDisposable
     public IReadOnlyList<Variable> Variables => variables;
     public IReadOnlyList<Attribute> Attributes => attributes;
 
-    public NetCDFFile(string path, NetCDFFileMode mode = NetCDFFileMode.Read)
+    public NetCDFFile(string path, NetCDFFileMode mode = NetCDFFileMode.Read, bool parallel = false)
     {
-        id = Open(path, mode);
+        id = Open(path, mode, parallel);
         readOnly = mode == NetCDFFileMode.Read;
         this.path = path;
         basename = Path.GetFileName(path);
@@ -307,26 +307,40 @@ public class NetCDFFile : IDisposable
     /// </summary>
     /// <param name="file">Path to the NetCDF file.</param>
     /// <param name="mode">File open mode.</param>
-    private int Open(string file, NetCDFFileMode mode)
+    private int Open(string file, NetCDFFileMode mode, bool parallel = false)
     {
         if (mode == NetCDFFileMode.Append && !File.Exists(file))
             throw new FileNotFoundException($"Unable to open netcdf file: file does not exist: {file}");
         else if (mode == NetCDFFileMode.Write)
-            return Create(file);
+            return Create(file, parallel);
 
-        int result = NetCDFNative.nc_open(file, mode.ToOpenMode(), out int id);
+        Log.Diagnostic("Opening file for {0} IO: '{1}'...", parallel ? "parallel" : "serial", file);
+        OpenMode omode = mode.ToOpenMode();
+
+        int result, id;
+        if (parallel)
+            result = NetCDFNative.nc_open_par(file, omode, out id);
+        else
+            result = NetCDFNative.nc_open(file, omode, out id);
+
         CheckResult(result, "Failed to open netcdf file");
 
         Log.Diagnostic("Successfully opened netcdf file in mode {0}: '{1}'", mode.ToEnumString(), file);
         return id;
     }
 
-    private int Create(string file)
+    private int Create(string file, bool parallel = false)
     {
-        Log.Debug("Creating NetCDF file: '{0}'...", file);
+        Log.Debug("Creating NetCDF file for {0} IO: '{1}'...", parallel ? "parallel" : "serial", file);
 
-        int res = NetCDFNative.nc_create(file, CreateMode.NC_NETCDF4 | CreateMode.NC_CLOBBER, out int id);
-        CheckResult(res, "Failed to create file {0}", file);
+        CreateMode mode = CreateMode.NC_NETCDF4 | CreateMode.NC_CLOBBER;
+
+        int result, id;
+        if (parallel)
+            result = NetCDFNative.nc_create_par(file, mode, out id);
+        else
+            result = NetCDFNative.nc_create(file, mode, out id);
+        CheckResult(result, "Failed to create file {0}", file);
 
         Log.Debug("Successfully created NetCDF file: '{0}'", file);
         return id;

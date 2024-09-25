@@ -21,6 +21,7 @@ public class Options
     private readonly bool allowCompact;
     private readonly string outputFile;
     private readonly IEnumerable<string> inputFiles;
+    private readonly bool useMpi;
 
     [Option('v', "verbosity", Default = 2, HelpText = "Logging verbosity (0-4)")]
     public int Verbosity => verbosity;
@@ -59,6 +60,9 @@ public class Options
     [Option('o', "out-file", Required = true, HelpText = "Path to the output file.")]
     public string OutputFile => outputFile;
 
+    [Option("mpi", Default = false, HelpText = "Use MPI for parallel processing of files.")]
+    public bool UseMpi => useMpi;
+
     [Value(0)]
     public IEnumerable<string> InputFiles => inputFiles;
 
@@ -66,7 +70,8 @@ public class Options
         , int minChunkSize, string? units, string? workingDirectory
         , TimeSpan? walltimeLimit, string? restartFile
         , IEnumerable<string> chunkSizes, int compressionLevel
-        , bool allowCompact, string outputFile, IEnumerable<string> inputFiles)
+        , bool allowCompact, string outputFile, bool useMpi
+        , IEnumerable<string> inputFiles)
     {
         this.verbosity = verbosity;
         this.showProgress = showProgress;
@@ -80,6 +85,7 @@ public class Options
         this.compressionLevel = compressionLevel;
         this.allowCompact = allowCompact;
         this.outputFile = outputFile;
+        this.useMpi = useMpi;
         this.inputFiles = inputFiles;
     }
 }

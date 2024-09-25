@@ -4,9 +4,9 @@ public static class Log
 {
     private static ILogger? logService;
 
-    public static void ConfigureLogging(LogLevel verbosity, bool showProgress, int progressInterval)
+    public static void ConfigureLogging(LogLevel verbosity, bool showProgress, int progressInterval, bool mpi)
     {
-        logService = new LogFile(verbosity, showProgress, progressInterval);
+        logService = new LogFile(verbosity, showProgress, progressInterval, mpi);
     }
 
     public static void Error(string format, params object[] args)

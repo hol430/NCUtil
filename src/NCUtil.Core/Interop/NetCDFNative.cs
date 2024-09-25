@@ -2,6 +2,9 @@ using System.Runtime.InteropServices;
 using System.Text;
 using NCUtil.Core.Interop.Marshalling;
 
+using MPI_Comm = System.IntPtr;
+using MPI_Info = System.IntPtr;
+
 namespace NCUtil.Core.Interop;
 
 public static partial class NetCDFNative
@@ -117,6 +120,50 @@ public static partial class NetCDFNative
     /// <summary>Synchronize an open netcdf dataset to disk</summary>
     [DllImport(library, CallingConvention = CallingConvention.Cdecl)]
     public static extern int nc_sync(int ncid);
+
+    /// <summary>Open an existing netCDF file for parallel I/O.</summary>
+    [DllImport(library, CallingConvention = CallingConvention.Cdecl)]
+    private static extern int nc_open_par(string path, OpenMode omode, MPI_Comm comm, MPI_Info info, out int ncidp);
+
+    /// <summary>Create a netCDF file for parallel I/O.</summary>
+    [DllImport(library, CallingConvention = CallingConvention.Cdecl)]
+    private static extern int nc_create_par(string path, CreateMode cmode, MPI_Comm comm, MPI_Info info, out int ncidp);
+
+    /// <summary>
+    /// Change the parallel access of a variable from independent to collective
+    /// and vice versa.
+    /// </summary>
+    /// <remarks>
+    /// This function will change the parallel access of a variable from
+    /// independent to collective and vice versa.
+    ///
+    /// This function is collective, i.e. must be called by all MPI processes
+    /// defined in the MPI communicator used in nc_create_par() or
+    /// nc_open_par(). In addition, values of arguments of this function must be
+    /// the same among all MPI processes.
+    ///
+    /// To obtain a good I/O performance, users are recommended to use
+    /// collective mode. In addition, switching between collective and
+    /// independent I/O mode can be expensive.
+    ///
+    /// In netcdf-c-4.7.4 or later, using hdf5-1.10.2 or later, the zlib, szip,
+    /// fletcher32, and other filters may be used when writing data with
+    /// parallel I/O. The use of these filters require collective access.
+    /// Turning on the zlib (deflate) or fletcher32 filter for a variable will
+    /// automatically set its access to collective if the file has been opened
+    /// for parallel I/O. Attempts to set access to independent will return
+    /// NC_EINVAL.
+    ///
+    /// Note When the library is build with –enable-pnetcdf, and when file is
+    /// opened/created to use PnetCDF library to perform parallel I/O
+    /// underneath, argument varid is ignored and the mode changed by this
+    /// function applies to all variables. This is because PnetCDF does not
+    /// support access mode change for individual variables. In this case, users
+    /// may use NC_GLOBAL in varid argument for better program readability.
+    /// </remarks>
+    [DllImport(library, CallingConvention = CallingConvention.Cdecl)]
+    public static extern int nc_var_par_access(int ncid, int varid, ParallelAccess par_access);
+
     #endregion
 
     #region Dimensions

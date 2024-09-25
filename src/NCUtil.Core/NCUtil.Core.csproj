@@ -11,4 +11,11 @@
     <PackageReference Include="CommandLineParser" Version="2.9.1" />
   </ItemGroup>
 
+  <Target Name="BuildNativeLib" AfterTargets="Build">
+    <Message Text="Building native lib..." Importance="Normal" />
+    <Exec Command="make" WorkingDirectory="$(MSBuildProjectDirectory)/../mpibridge" />
+    <Message Text="Copying native lib to target directory..." Importance="Normal" />
+    <Copy SourceFiles="$(MSBuildProjectDirectory)/../mpibridge/mpibridge.so" DestinationFolder="$(TargetDir)/" />
+  </Target>
+
 </Project>
