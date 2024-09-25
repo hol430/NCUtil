@@ -26,8 +26,8 @@ MPI_Datatype mpibridge_MPI_DATATYPE_NULL() { return MPI_DATATYPE_NULL; }
 MPI_Group mpibridge_MPI_GROUP_EMPTY() { return MPI_GROUP_EMPTY; }
 MPI_Group mpibridge_MPI_GROUP_NULL() { return MPI_GROUP_NULL; }
 MPI_Info mpibridge_MPI_INFO_NULL() { return MPI_INFO_NULL; }
-MPI_Copy_function * mpibridge_MPI_NULL_COPY_FN() { return MPI_NULL_COPY_FN; }
-MPI_Delete_function * mpibridge_MPI_NULL_DELETE_FN() { return MPI_NULL_DELETE_FN; }
+MPI_Copy_function * mpibridge_MPI_NULL_COPY_FN() { return MPI_COMM_NULL_COPY_FN; }
+MPI_Delete_function * mpibridge_MPI_NULL_DELETE_FN() { return MPI_COMM_NULL_DELETE_FN; }
 MPI_Errhandler mpibridge_MPI_ERRORS_ARE_FATAL() { return MPI_ERRORS_ARE_FATAL; }
 MPI_Errhandler mpibridge_MPI_ERRORS_RETURN() { return MPI_ERRORS_RETURN; }
 MPI_Errhandler mpibridge_MPI_ERRHANDLER_NULL() { return MPI_ERRHANDLER_NULL; }
