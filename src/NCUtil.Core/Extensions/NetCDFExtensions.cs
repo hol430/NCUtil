@@ -133,10 +133,23 @@ public static class NetCDFExtensions
 
     public static Attribute GetAttribute(this Variable variable, string name)
     {
-        foreach (Attribute attribute in variable.Attributes)
-            if (attribute.Name == name)
-                return attribute;
+        if (variable.TryGetAttribute(name, out Attribute? attribute))
+            return attribute!;
         throw new InvalidOperationException($"Variable {variable.Name} has no {name} attribute");
+    }
+
+    public static bool TryGetAttribute(this Variable variable, string name, out Attribute? attribute)
+    {
+        foreach (Attribute attr in variable.Attributes)
+        {
+            if (attr.Name == name)
+            {
+                attribute = attr;
+                return true;
+            }
+        }
+        attribute = null;
+        return false;
     }
 
     public static Calendar ParseCalendar(this string attribute)
