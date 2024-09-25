@@ -4,3 +4,5 @@ data
 *.nettrace
 *.chromium.json
 *.speedscope.json
+mpibridge.so
+
