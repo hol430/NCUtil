@@ -32,7 +32,10 @@ public class LogFile : ILogger
         progressEol = Console.IsOutputRedirected ? '\n' : '\r';
         this.progressInterval = TimeSpan.FromSeconds(progressInterval);
         this.mpi = mpi;
-        rank = Mpi.MPI_Comm_rank(MpiBridge.MPI_COMM_WORLD);
+        if (mpi)
+            rank = Mpi.MPI_Comm_rank(MpiBridge.MPI_COMM_WORLD);
+        else
+            rank = -1;
     }
 
     public void Log(LogLevel level, string format, params object[] args)

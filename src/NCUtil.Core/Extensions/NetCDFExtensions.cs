@@ -2,6 +2,8 @@ using NCUtil.Core.Models;
 using NCUtil.Core.Logging;
 using Attribute = NCUtil.Core.Models.Attribute;
 using NCUtil.Core.Interop;
+using System.Reflection;
+using System.Dynamic;
 
 namespace NCUtil.Core.Extensions;
 
@@ -26,6 +28,21 @@ public static class NetCDFExtensions
     /// Name of the units attribute.
     /// </summary>
     private const string attrUnits = "units";
+
+    /// <summary>
+    /// Name of the 'standard_name' attribute, as specified by the cf spec.
+    /// </summary>
+    private const string attrStandardName = "standard_name";
+
+    /// <summary>
+    /// Standard name of the longitude variable, as specified by the cf spec.
+    /// </summary>
+    private const string stdLongitude = "longitude";
+
+    /// <summary>
+    /// Standard name of the latitude variable, as specified by the cf spec.
+    /// </summary>
+    private const string stdLatitude = "latitude";
 
     private static readonly IDictionary<Type, NCType> typeLookup = new Dictionary<Type, NCType>()
     {
@@ -152,6 +169,20 @@ public static class NetCDFExtensions
         return false;
     }
 
+    public static bool TryGetVariable(this NetCDFFile file, string name, out Variable? variable)
+    {
+        foreach (Variable var in file.Variables)
+        {
+            if (var.Name.Equals(name, StringComparison.InvariantCulture))
+            {
+                variable = var;
+                return true;
+            }
+        }
+        variable = null;
+        return false;
+    }
+
     public static Calendar ParseCalendar(this string attribute)
     {
         switch (attribute)
@@ -206,4 +237,134 @@ public static class NetCDFExtensions
     {
         return Enum.GetName(e.GetType(), e)!;
     }
+
+    public static bool HasStandardName(this Variable variable, string name)
+    {
+        if (!variable.TryGetAttribute(attrStandardName, out Attribute? attr))
+            // This variable doesn't have a standard name attribute.
+            return false;
+
+        if (attr == null)
+            return false;
+
+        if (attr.Value is string str)
+            return str == name;
+
+        // Maybe we should return false if it's not a string attribute.
+        return attr.ToString() == name;
+    }
+
+    public static bool IsLongitude(this Variable variable)
+    {
+        if (variable.HasStandardName(stdLongitude))
+            return true;
+        string name = variable.Name.ToLower();
+        return name == "lon" || name == "longitude";
+    }
+
+    public static bool IsLatitude(this Variable variable)
+    {
+        if (variable.HasStandardName(stdLatitude))
+            return true;
+        string name = variable.Name.ToLower();
+        return name == "lat" || name == "latitude";
+    }
+
+    private static Dimension FindDimension(this NetCDFFile file, Func<Variable, bool> predicate)
+    {
+        foreach (Dimension dimension in file.Dimensions)
+            // This assumes a variable with the same name as the dimension exists.
+            if (file.TryGetVariable(dimension.Name, out Variable? variable))
+                if (variable!.Dimensions.Count == 1 && variable.Dimensions[0] == dimension.Name && predicate(variable!))
+                    return dimension;
+        throw new NotImplementedException($"Failed to find dimension");
+    }
+
+    public static Dimension GetLongitudeDimension(this NetCDFFile file)
+    {
+        return FindDimension(file, IsLongitude);
+    }
+
+    public static Dimension GetLatitudeDimension(this NetCDFFile file)
+    {
+        return FindDimension(file, IsLatitude);
+    }
+
+    public static Variable GetLongitudeVariable(this NetCDFFile file)
+    {
+        return file.Variables.First(IsLongitude);
+    }
+
+    public static Variable GetLatitudeVariable(this NetCDFFile file)
+    {
+        return file.Variables.First(IsLatitude);
+    }
+
+    public static int IndexOfValue(this Variable variable, double value, double eps = 1e-6)
+    {
+        if (variable.Dimensions.Count != 1)
+            throw new InvalidOperationException($"Unable to get index of value {value}: variable {variable.Name} is not 1-dimensional");
+        MutableRange range = new MutableRange();
+        range.Start = 0;
+        range.Count = (int)variable.GetLength(); // fixme - this is a bug
+        Array data = variable.Read([range]);
+
+        // This will fail if the variable is float!
+        double match = data.Cast<double>().MinBy(x => Math.Abs(x - value));
+        if (Math.Abs(match - value) > eps)
+            return -1;
+
+        // Exact comparison should be possible here - we haven't modified the
+        // value we read before.
+        return data.Cast<double>().IndexOf(x => x == match);
+    }
+
+    /// <summary>
+    /// Read a timeseries for a variable which has 3 dimensions: latitude,
+    /// longitude, and time.
+    /// </summary>
+    /// <param name="variable">The variable to read.</param>
+    /// <param name="lon">Longitude of the data to be read.</param>
+    /// <param name="lat">Latitude of the data to be read.</param>
+    public static Array ReadTimeseries(this NetCDFFile file, Variable variable, double lon, double lat)
+    {
+        if (variable.Dimensions.Count != 3)
+            throw new InvalidOperationException($"Can only extract timeseries for 3-dimensional variables. Variable {variable.Name} has {variable.Dimensions.Count} dimensions.");
+
+        Variable timeVariable   = file.GetTimeVariable();
+        Variable lonVariable    = file.GetLongitudeVariable();
+        Variable latVariable    = file.GetLatitudeVariable();
+
+        Dimension timeDimension = file.GetDimension(timeVariable.Name);
+        Dimension lonDimension  = file.GetDimension(lonVariable.Name);
+        Dimension latDimension  = file.GetDimension(latVariable.Name);
+
+        int dimLon  = variable.Dimensions.IndexOf(lonDimension.Name, StringComparison.InvariantCulture);
+        int dimLat  = variable.Dimensions.IndexOf(latDimension.Name, StringComparison.InvariantCulture);
+        int dimTime = variable.Dimensions.IndexOf(timeDimension.Name, StringComparison.InvariantCulture);
+
+        int lonIndex = lonVariable.IndexOfValue(lon);
+        int latIndex = latVariable.IndexOfValue(lat);
+
+        if (lonIndex < 0)
+            throw new InvalidOperationException($"Longitude {lon} not found in netcdf file");
+        if (latIndex < 0)
+            throw new InvalidOperationException($"Latitude {lat} not found in netcdf file");
+
+        MutableRange[] hyperslab = new MutableRange[3];
+        hyperslab[dimTime] = new MutableRange();
+        hyperslab[dimTime].Start = 0;
+        hyperslab[dimTime].Count = timeDimension.Size;
+
+        hyperslab[dimLon] = new MutableRange();
+        hyperslab[dimLon].Start = lonIndex;
+        hyperslab[dimLon].Count = 1;
+
+        hyperslab[dimLat] = new MutableRange();
+        hyperslab[dimLat].Start = latIndex;
+        hyperslab[dimLat].Count = 1;
+
+        return variable.Read(hyperslab);
+    }
+
 }

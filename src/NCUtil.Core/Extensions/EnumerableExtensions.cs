@@ -52,6 +52,11 @@ public static class EnumerableExtensions
 		return result;
 	}
 
+	public static int IndexOf(this IEnumerable<string> haystack, string needle, StringComparison comparisonType)
+	{
+		return haystack.IndexOf(h => h.Equals(needle, comparisonType));
+	}
+
 	public static int IndexOf<T>(this IEnumerable<T> enumerable, Func<T, bool> match)
 	{
 		int i = 0;
