@@ -20,11 +20,6 @@ public static class NetCDFExtensions
     private const string varTime = "time";
 
     /// <summary>
-    /// Name of the calendar attribute.
-    /// </summary>
-    private const string attrCalendar = "calendar";
-
-    /// <summary>
     /// Name of the units attribute.
     /// </summary>
     private const string attrUnits = "units";
@@ -43,6 +38,11 @@ public static class NetCDFExtensions
     /// Standard name of the latitude variable, as specified by the cf spec.
     /// </summary>
     private const string stdLatitude = "latitude";
+
+    /// <summary>
+    /// Standard name of the time variable, as specified by the cf spec.
+    /// </summary>
+    private const string stdTime = "time";
 
     private static readonly IDictionary<Type, NCType> typeLookup = new Dictionary<Type, NCType>()
     {
@@ -183,30 +183,6 @@ public static class NetCDFExtensions
         return false;
     }
 
-    public static Calendar ParseCalendar(this string attribute)
-    {
-        switch (attribute)
-        {
-            case "standard":
-            case "gregorian":
-                return Calendar.Standard;
-            case "proleptic_gregorian":
-                return Calendar.ProlepticGregorian;
-            case "julian":
-                return Calendar.Julian;
-            case "noleap":
-            case "365_day":
-                return Calendar.NoLeap;
-            case "360_day":
-                return Calendar.EqualLength;
-            case "none":
-            case "":
-                return Calendar.None;
-            default:
-                throw new InvalidOperationException($"Unable to parse calendar type from attribute value: '{attribute}'");
-        }
-    }
-
     public static string ReadStringAttribute(this Variable variable, string name)
     {
         // Get the attribute.
@@ -217,15 +193,6 @@ public static class NetCDFExtensions
             throw new InvalidOperationException($"Unable to read attribute {name} of variable {variable.Name}: attribute type in netcdf file is of type {attribute.DataType.ToFriendlyName()}, and the attribute value is of type {attribute.Value.GetType().ToFriendlyName()}");
 
         return (string)attribute.Value;
-    }
-
-    public static Calendar GetCalendar(this Variable variable)
-    {
-        if (variable.Name != varTime)
-            throw new InvalidOperationException($"Attempted to get calendar for non-time variable");
-
-        string value = variable.ReadStringAttribute(attrCalendar);
-        return ParseCalendar(value);
     }
 
     public static string GetUnits(this Variable variable)
@@ -252,6 +219,14 @@ public static class NetCDFExtensions
 
         // Maybe we should return false if it's not a string attribute.
         return attr.ToString() == name;
+    }
+
+    public static bool IsTime(this Variable variable)
+    {
+        if (variable.HasStandardName(varTime))
+            return true;
+        string name = variable.Name.ToLower();
+        return name == "time";
     }
 
     public static bool IsLongitude(this Variable variable)

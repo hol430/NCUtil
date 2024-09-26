@@ -3,7 +3,7 @@ namespace NCUtil.Core.Models;
 /// <summary>
 /// Calendars allowed by the CF conventions.
 /// </summary>
-public enum Calendar
+public enum CalendarType
 {
     /// <summary>
     /// Mixed Gregorian/Julian calendar as defined by UDUNITS. This is the
